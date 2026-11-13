@@ -1,0 +1,6 @@
+{
+  "name": "TokDesign - Mobile Studio & Marketplace",
+  "description": "แอปพลิเคชันมือถือสไตล์ TikTok พร้อมสตูดิโอออกแบบเสื้อ เคส กระเป๋า ฟีดวิดีโอ ร้านค้า และตลาดงานบริการ",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
