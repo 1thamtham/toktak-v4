@@ -1,828 +1,336 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import React, { useState, useRef, useEffect } from 'react';
+import { Heart, MessageCircle, Share2, Music, Home, Compass, PlusSquare, Inbox, User, Play, Pause } from 'lucide-react';
 
-import React, { useState, useEffect } from 'react';
-import { TabType, ProductType, VideoItem, ProductItem, ServiceItem, CartItem, UserProfile, AdminOrder } from './types';
-import { INITIAL_VIDEOS, INITIAL_PRODUCTS, INITIAL_SERVICES, INITIAL_CART, INITIAL_ADMIN_ORDERS } from './data/mockData';
-import { TopBar } from './components/TopBar';
-import { BottomTabBar } from './components/BottomTabBar';
-import { HomeFeedView } from './components/HomeFeedView';
-import { ShopView } from './components/ShopView';
-import { ServicesView } from './components/ServicesView';
-import { ProfileView } from './components/ProfileView';
-import { DesignStudioView } from './components/DesignStudioView';
-import { LiveStreamView } from './components/LiveStreamView';
-import { CreateModal } from './components/CreateModal';
-import { CommentModal } from './components/CommentModal';
-import { ShareModal } from './components/ShareModal';
-import { ProductDetailModal } from './components/ProductDetailModal';
-import { AdminBackendModal } from './components/AdminBackendModal';
-import { TokTakCreatorShopModal } from './components/TokTakCreatorShopModal';
-import { Crown } from 'lucide-react';
+interface VideoItem {
+  id: string;
+  url: string;
+  username: string;
+  caption: string;
+  song: string;
+  likes: number;
+  comments: number;
+}
 
-// Per-user profile storage keys (indexed by Gmail)
-const PROFILES_STORAGE_KEY = 'toktak_profiles_by_email';
-const ACTIVE_EMAIL_KEY = 'toktak_active_user_email';
-
-// Pre-defined base profiles with distinct avatars and info for quick testing & roles
-const DEFAULT_ACCOUNT_SEEDS: Record<string, Partial<UserProfile>> = {
-  'goldenrivercity@gmail.com': {
-    name: 'Golden River City',
-    handle: '@goldenrivercity',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&auto=format&fit=crop&q=95',
-    bio: '👑 Superadmin ผู้ดูแลระบบสูงสุด (จัดการหลังบ้านและสินค้า)',
-    role: 'superadmin',
-    followersCount: 1420,
-    followingCount: 88,
-    likesCount: 15400
+// วิดีโอตัวอย่างตั้งต้น (ใช้ลิงก์ที่เสถียรและเล่นได้จริง)
+const INITIAL_VIDEOS: VideoItem[] = [
+  {
+    id: '1',
+    url: 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4',
+    username: '@doglover_th',
+    caption: 'น้องหมาวิ่งเล่นในทุ่งหญ้าอย่างมีความสุข 🐶✨ #น้องหมา #สัตว์เลี้ยงน่ารัก',
+    song: 'เสียงต้นฉบับ - Dog Lover',
+    likes: 1250,
+    comments: 48,
   },
-  'admin@tokdesign.com': {
-    name: 'Admin TokDesign',
-    handle: '@tokdesign_admin',
-    avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=800&auto=format&fit=crop&q=95',
-    bio: '🛡️ ผู้ดูแลร้านค้า TokDesign ประจำสาขากรุงเทพฯ',
-    role: 'admin',
-    followersCount: 680,
-    followingCount: 42,
-    likesCount: 4200
+  {
+    id: '2',
+    url: 'https://assets.mixkit.co/videos/preview/mixkit-cute-dog-head-tilt-41585-large.mp4',
+    username: '@pet_world',
+    caption: 'เอียงคอสงสัยอะไรอยู่นะเจ้าตัวเล็ก 🐾❤️ #หมาน่ารัก #tiktokpets',
+    song: 'เสียงต้นฉบับ - Pet World',
+    likes: 3420,
+    comments: 120,
   },
-  'customer@gmail.com': {
-    name: 'สมชาย ใจดี',
-    handle: '@somchai_bkk',
-    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=800&auto=format&fit=crop&q=95',
-    bio: 'ผู้ใช้งานทั่วไป 🎨 ชื่นชอบสตรีทแวร์และงานดีไซน์ตามสั่ง',
-    role: 'user',
-    followersCount: 95,
-    followingCount: 210,
-    likesCount: 890
-  }
-};
-
-const getStoredProfileForEmail = (email: string, name?: string): UserProfile => {
-  const normalizedEmail = email.trim().toLowerCase();
-  try {
-    const raw = localStorage.getItem(PROFILES_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed) {
-        const existingKey = Object.keys(parsed).find(
-          (k) => k.trim().toLowerCase() === normalizedEmail
-        );
-        if (existingKey && parsed[existingKey]) {
-          return { ...parsed[existingKey], email: normalizedEmail };
-        }
-      }
-    }
-  } catch (e) {
-    console.warn(e);
-  }
-
-  // If not stored yet, initialize with seed or derived info
-  const seed = DEFAULT_ACCOUNT_SEEDS[normalizedEmail] || {};
-  const isSuper = normalizedEmail === 'goldenrivercity@gmail.com';
-  const isAdmin = normalizedEmail.startsWith('admin') || normalizedEmail.includes('admin@');
-  const role: 'superadmin' | 'admin' | 'creator' | 'user' = isSuper ? 'superadmin' : isAdmin ? 'admin' : (seed.role || 'user');
-
-  const derivedName =
-    name?.trim() ||
-    seed.name ||
-    (normalizedEmail === 'goldenrivercity@gmail.com'
-      ? 'Golden River City'
-      : normalizedEmail.split('@')[0].replace(/[._]/g, ' '));
-  const derivedHandle =
-    seed.handle || `@${normalizedEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '')}`;
-  const derivedAvatar =
-    seed.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=800&auto=format&fit=crop&q=95';
-
-  const newProfile: UserProfile = {
-    id: `usr-${normalizedEmail.replace(/[^a-zA-Z0-9]/g, '')}`,
-    email: normalizedEmail,
-    name: derivedName,
-    handle: derivedHandle,
-    avatar: derivedAvatar,
-    bio: seed.bio || 'ผู้ใช้งาน TokTak อย่างเป็นทางการ 🎨 ยินดีต้อนรับสู่โปรไฟล์ของฉัน',
-    joinedDate: 'พ.ย. 2026',
-    followersCount: seed.followersCount || 100,
-    followingCount: seed.followingCount || 25,
-    likesCount: seed.likesCount || 350,
-    isGoogleVerified: true,
-    role
-  };
-
-  saveStoredProfileForEmail(normalizedEmail, newProfile);
-  return newProfile;
-};
-
-const saveStoredProfileForEmail = (email: string, profile: UserProfile) => {
-  const normalizedEmail = email.trim().toLowerCase();
-  try {
-    const raw = localStorage.getItem(PROFILES_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    parsed[normalizedEmail] = { ...profile, email: normalizedEmail };
-    localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(parsed));
-    localStorage.setItem(ACTIVE_EMAIL_KEY, normalizedEmail);
-    localStorage.setItem('tokdesign_current_user', JSON.stringify({ ...profile, email: normalizedEmail }));
-  } catch (e) {
-    console.warn(e);
-  }
-};
+];
 
 export default function App() {
-  // Navigation & View States
-  const [currentTab, setCurrentTab] = useState<TabType>('home');
-  const [showDesignStudio, setShowDesignStudio] = useState<boolean>(false);
-  const [showLiveStream, setShowLiveStream] = useState<boolean>(false);
-  const [designStudioTemplate, setDesignStudioTemplate] = useState<ProductType>('tshirt');
-  const [feedType, setFeedType] = useState<'following' | 'foryou' | 'live'>('foryou');
-
-  // Authenticated User State (strictly keyed per Gmail in localStorage)
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
-    try {
-      const activeEmail = localStorage.getItem(ACTIVE_EMAIL_KEY) || 'goldenrivercity@gmail.com';
-      return getStoredProfileForEmail(activeEmail);
-    } catch {
-      return getStoredProfileForEmail('goldenrivercity@gmail.com');
-    }
-  });
-
-  // High-reliability fallback video for broken/corrupt media files
-  const FALLBACK_VIDEO_URL = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
-
-  // App Data States (with validation and automatic cleanup for corrupted localStorage data)
   const [videos, setVideos] = useState<VideoItem[]>(() => {
     try {
-      const saved = localStorage.getItem('tokdesign_videos');
+      const saved = localStorage.getItem('toktak_videos_v1');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // 1. Validation: Filter out corrupt objects (null, non-object, missing id)
-          const validClips = parsed.filter((v: any) => (
-            v &&
-            typeof v === 'object' &&
-            typeof v.id === 'string' &&
-            v.id.trim().length > 0
-          ));
-
-          let hasCleanedCorruptData = validClips.length !== parsed.length;
-
-          // 2. Sanitize and repair video URLs, poster images, and author metadata
-          const sanitizedClips: VideoItem[] = validClips.map((v: VideoItem) => {
-            let cleanVideoUrl = v.videoUrl;
-            // Check if videoUrl is missing, empty, or an expired session blob URL
-            if (!cleanVideoUrl || typeof cleanVideoUrl !== 'string' || cleanVideoUrl.trim() === '' || cleanVideoUrl.startsWith('blob:')) {
-              cleanVideoUrl = FALLBACK_VIDEO_URL;
-              hasCleanedCorruptData = true;
-            }
-
-            // Fix any invalid posterUrl (e.g. mp4, mov, webm, blob, or identical to videoUrl)
-            let cleanPoster = v.posterUrl;
-            const isInvalidPoster =
-              !cleanPoster ||
-              typeof cleanPoster !== 'string' ||
-              cleanPoster.endsWith('.mp4') ||
-              cleanPoster.endsWith('.mov') ||
-              cleanPoster.endsWith('.webm') ||
-              cleanPoster.startsWith('blob:') ||
-              cleanPoster.startsWith('data:video') ||
-              cleanPoster === cleanVideoUrl;
-
-            if (isInvalidPoster) {
-              cleanPoster =
-                v.linkedProduct?.image ||
-                (v.linkedProduct?.productType === 'phonecase'
-                  ? '/src/assets/images/phonecase_mockup_1794023818273.jpg'
-                  : v.linkedProduct?.productType === 'totebag'
-                  ? '/src/assets/images/totebag_mockup_1794023818674.jpg'
-                  : '/src/assets/images/tshirt_mockup_1794023817755.jpg');
-              hasCleanedCorruptData = true;
-            }
-
-            const creatorEmail = (
-              v.creatorEmail ||
-              v.ownerEmail ||
-              v.authorEmail ||
-              (v.creatorHandle === '@goldenrivercity' || v.id === 'vid-1' || v.id.startsWith('clip-')
-                ? 'goldenrivercity@gmail.com'
-                : v.id === 'vid-2'
-                ? 'waveform@toktak.com'
-                : 'artisan@toktak.com')
-            ).toLowerCase();
-
-            const ownerEmail = (v.ownerEmail || creatorEmail).toLowerCase();
-            const authorEmail = (v.authorEmail || creatorEmail).toLowerCase();
-            const likedByEmails = Array.isArray(v.likedByEmails)
-              ? v.likedByEmails
-              : (v.isLiked ? ['goldenrivercity@gmail.com'] : []);
-
-            return {
-              ...v,
-              videoUrl: cleanVideoUrl,
-              posterUrl: cleanPoster,
-              creatorEmail,
-              ownerEmail,
-              authorEmail,
-              likedByEmails
-            };
-          });
-
-          // 3. Auto-cleanup: If corrupted entries were filtered out or repaired, write clean data back
-          if (hasCleanedCorruptData) {
-            try {
-              localStorage.setItem('tokdesign_videos', JSON.stringify(sanitizedClips));
-            } catch {
-              // ignore
-            }
-          }
-
-          if (sanitizedClips.length > 0) {
-            return sanitizedClips;
-          }
-        }
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
     } catch (e) {
-      console.warn('LocalStorage data corruption detected; resetting to pristine initial videos', e);
-      try {
-        localStorage.setItem('tokdesign_videos', JSON.stringify(INITIAL_VIDEOS));
-      } catch {
-        // ignore
-      }
+      console.error('Error loading localStorage', e);
     }
     return INITIAL_VIDEOS;
   });
-  const [products, setProducts] = useState<ProductItem[]>(INITIAL_PRODUCTS);
-  const [services, setServices] = useState<ServiceItem[]>(INITIAL_SERVICES);
-  const [cart, setCart] = useState<CartItem[]>(INITIAL_CART);
-  const [orders, setOrders] = useState<AdminOrder[]>(INITIAL_ADMIN_ORDERS);
 
-  // Sync videos to localStorage whenever updated
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [activeTab, setActiveTab] = useState<'home' | 'upload' | 'profile'>('home');
+  const [isUploading, setIsUploading] = useState(false);
+
+  // ฟอร์มสำหรับจำลองการอัปโหลด
+  const [newVideoUrl, setNewVideoUrl] = useState('');
+  const [newCaption, setNewCaption] = useState('');
+
+  const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
+
+  // บันทึกลง localStorage ทุกครั้งที่ videos เปลี่ยน
   useEffect(() => {
     try {
-      localStorage.setItem('tokdesign_videos', JSON.stringify(videos));
+      localStorage.setItem('toktak_videos_v1', JSON.stringify(videos));
     } catch (e) {
-      console.error(e);
+      console.error('Error saving localStorage', e);
     }
   }, [videos]);
 
-  // Modal & Focus States
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isAdminBackendOpen, setIsAdminBackendOpen] = useState(false);
-  const [isTokTakShopOpen, setIsTokTakShopOpen] = useState(false);
-  const [commentVideo, setCommentVideo] = useState<VideoItem | null>(null);
-  const [shareVideo, setShareVideo] = useState<VideoItem | null>(null);
-  const [detailProduct, setDetailProduct] = useState<ProductItem | null>(null);
-  const [focusedVideoId, setFocusedVideoId] = useState<string | null>(null);
-
-  // Global Toast
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage(null);
-    }, 2400);
-  };
-
-  const isAuthorizedAdmin = Boolean(
-    currentUser &&
-      (currentUser.email === 'goldenrivercity@gmail.com' ||
-        currentUser.role === 'superadmin' ||
-        currentUser.role === 'admin')
-  );
-
-  // Video Actions
-  const handleLikeVideo = (videoId: string) => {
-    const currentEmail = currentUser?.email?.toLowerCase() || 'goldenrivercity@gmail.com';
-    setVideos((prev) =>
-      prev.map((v) => {
-        if (v.id === videoId) {
-          const list = v.likedByEmails || (v.isLiked ? ['goldenrivercity@gmail.com'] : []);
-          const isCurrentlyLiked = list.some((e) => e.toLowerCase() === currentEmail);
-          const nextLiked = !isCurrentlyLiked;
-          const updatedLikes = nextLiked
-            ? [...new Set([...list, currentEmail])]
-            : list.filter((e) => e.toLowerCase() !== currentEmail);
-
-          return {
-            ...v,
-            isLiked: nextLiked,
-            likedByEmails: updatedLikes,
-            likesCount: nextLiked ? v.likesCount + 1 : Math.max(0, v.likesCount - 1)
-          };
-        }
-        return v;
-      })
-    );
-  };
-
-  const handleToggleVideoPrivacy = (videoId: string) => {
-    setVideos((prev) => {
-      const updated = prev.map((v) => {
-        if (v.id === videoId) {
-          const nextPrivate = !v.isPrivate;
-          return {
-            ...v,
-            isPrivate: nextPrivate,
-            isDraft: nextPrivate ? v.isDraft : false
-          };
-        }
-        return v;
-      });
-      try {
-        localStorage.setItem('tokdesign_videos', JSON.stringify(updated));
-      } catch (e) {
-        console.warn(e);
+  // จัดการการเล่นวิดีโออัตโนมัติเมื่อเลื่อนฟีด
+  useEffect(() => {
+    videoRefs.current.forEach((video, index) => {
+      if (!video) return;
+      if (index === currentIndex) {
+        video.currentTime = 0;
+        video.play().then(() => {
+          setIsPlaying(true);
+        }).catch(() => {
+          setIsPlaying(false);
+        });
+      } else {
+        video.pause();
       }
-      return updated;
     });
-    showToast('🔒 อัปเดตสถานะความเป็นส่วนตัวของคลิปเรียบร้อยแล้ว');
+  }, [currentIndex, videos]);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    const index = Math.round(container.scrollTop / container.clientHeight);
+    if (index !== currentIndex && index >= 0 && index < videos.length) {
+      setCurrentIndex(index);
+    }
   };
 
-  const handleDeleteVideo = (videoId: string) => {
-    setVideos((prev) => {
-      const updated = prev.filter((v) => v.id !== videoId);
-      try {
-        localStorage.setItem('tokdesign_videos', JSON.stringify(updated));
-        if (currentUser?.email) {
-          const userClipsKey = `toktak_clips_${currentUser.email.toLowerCase()}`;
-          const existingRaw = localStorage.getItem(userClipsKey);
-          if (existingRaw) {
-            const list = JSON.parse(existingRaw);
-            const filtered = list.filter((v: VideoItem) => v.id !== videoId);
-            localStorage.setItem(userClipsKey, JSON.stringify(filtered));
-          }
-        }
-      } catch (e) {
-        console.warn(e);
-      }
-      return updated;
-    });
-    showToast('🗑️ ลบคลิปวิดีโอเรียบร้อยแล้ว');
-  };
-
-  // Cart Actions
-  const handleAddToCart = (product: ProductItem) => {
-    const existingIndex = cart.findIndex((item) => item.productName === product.name);
-    if (existingIndex > -1) {
-      setCart((prev) =>
-        prev.map((item, idx) =>
-          idx === existingIndex ? { ...item, quantity: item.quantity + 1 } : item
-        )
-      );
+  const togglePlay = (index: number) => {
+    const video = videoRefs.current[index];
+    if (!video) return;
+    if (video.paused) {
+      video.play();
+      setIsPlaying(true);
     } else {
-      const newItem: CartItem = {
-        id: `cart-${Date.now()}`,
-        productName: product.name,
-        productType: product.productType,
-        price: product.price,
-        quantity: 1,
-        color: product.colors?.[0] || '#0f172a',
-        previewImage: product.image,
-        timestamp: Date.now()
-      };
-      setCart((prev) => [newItem, ...prev]);
+      video.pause();
+      setIsPlaying(false);
     }
-    showToast(`🛒 เพิ่ม "${product.name}" ลงในตะกร้าแล้ว`);
   };
 
-  const handleAddCustomToCart = (item: CartItem) => {
-    setCart((prev) => [item, ...prev]);
-    showToast(`✨ เพิ่มผลงานออกแบบ "${item.productName}" ลงตะกร้าแล้ว`);
-  };
+  const handleAddVideo = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newVideoUrl.trim()) return;
 
-  const handleRemoveFromCart = (id: string) => {
-    setCart((prev) => prev.filter((item) => item.id !== id));
-    showToast('ลบสินค้าออกจากตะกร้าแล้ว');
-  };
-
-  const handleClearCart = () => {
-    setCart([]);
-  };
-
-  // Google Authentication & Switch Account Handlers (strictly per-email isolated profile & clips)
-  const handleLoginWithGoogle = (email?: string, name?: string) => {
-    const chosenEmail = (email || 'goldenrivercity@gmail.com').trim().toLowerCase();
-    const profile = getStoredProfileForEmail(chosenEmail, name);
-    saveStoredProfileForEmail(chosenEmail, profile);
-    setCurrentUser(profile);
-    setFocusedVideoId(null);
-    setVideos((prev) =>
-      prev.map((v) => {
-        const likedList = v.likedByEmails || [];
-        return {
-          ...v,
-          isLiked: likedList.some((e) => e.toLowerCase() === chosenEmail)
-        };
-      })
-    );
-    showToast(`🎉 สลับเป็นบัญชี ${profile.name} (${profile.email}) เรียบร้อย`);
-  };
-
-  const handleLogout = () => {
-    setCurrentUser(null);
-    setFocusedVideoId(null);
-    try {
-      localStorage.removeItem(ACTIVE_EMAIL_KEY);
-      localStorage.removeItem('tokdesign_current_user');
-    } catch {
-      // storage unavailable
-    }
-    showToast('ออกจากระบบเรียบร้อยแล้ว');
-  };
-
-  const handleUpdateProfile = (updated: Partial<UserProfile>) => {
-    if (!currentUser) return;
-    const updatedUser = { ...currentUser, ...updated };
-    const normalizedEmail = currentUser.email.trim().toLowerCase();
-    setCurrentUser(updatedUser);
-    saveStoredProfileForEmail(normalizedEmail, updatedUser);
-    // Sync updated profile metadata (avatar, name, handle) across owned videos immediately
-    setVideos((prev) =>
-      prev.map((v) => {
-        const owner = (v.authorEmail || v.ownerEmail || v.creatorEmail || '').trim().toLowerCase();
-        if (owner === normalizedEmail) {
-          return {
-            ...v,
-            creatorName: updatedUser.name,
-            creatorHandle: updatedUser.handle,
-            creatorAvatar: updatedUser.avatar
-          };
-        }
-        return v;
-      })
-    );
-    showToast('บันทึกข้อมูลโปรไฟล์เรียบร้อยแล้ว');
-  };
-
-  // Modal Handlers
-  const handleUploadClip = (data: {
-    caption: string;
-    music: string;
-    videoUrl: string;
-    posterUrl?: string;
-    linkedProduct?: ProductItem;
-    linkedProductType?: ProductType;
-    authorEmail?: string;
-    ownerEmail?: string;
-    creatorEmail?: string;
-  }) => {
-    // Only link product if explicitly provided, do not force default tshirt
-    const linked = data.linkedProduct
-      ? data.linkedProduct
-      : data.linkedProductType
-      ? products.find((p) => p.productType === data.linkedProductType)
-      : undefined;
-
-    const defaultPoster =
-      linked?.image ||
-      (data.linkedProductType === 'phonecase'
-        ? '/src/assets/images/phonecase_mockup_1794023818273.jpg'
-        : data.linkedProductType === 'totebag'
-        ? '/src/assets/images/totebag_mockup_1794023818674.jpg'
-        : '/src/assets/images/tshirt_mockup_1794023817755.jpg');
-
-    const cleanPoster =
-      data.posterUrl &&
-      !data.posterUrl.endsWith('.mp4') &&
-      !data.posterUrl.endsWith('.mov') &&
-      !data.posterUrl.endsWith('.webm') &&
-      !data.posterUrl.startsWith('data:video')
-        ? data.posterUrl
-        : defaultPoster;
-
-    const activeUserEmail = (data.authorEmail || data.ownerEmail || data.creatorEmail || currentUser?.email || 'goldenrivercity@gmail.com').toLowerCase();
-    const newClipId = `clip-${Date.now()}`;
-    const newVideo: VideoItem = {
-      id: newClipId,
-      videoUrl: data.videoUrl,
-      posterUrl: cleanPoster,
-      creatorName: currentUser ? currentUser.name : 'คุณ (ผู้ใช้)',
-      creatorHandle: currentUser ? currentUser.handle : `@${activeUserEmail.split('@')[0]}`,
-      creatorAvatar: currentUser
-        ? currentUser.avatar
-        : '/src/assets/images/creator_avatar_1794023819826.jpg',
-      creatorEmail: activeUserEmail,
-      ownerEmail: activeUserEmail,
-      authorEmail: activeUserEmail,
-      caption: data.caption,
-      musicTitle: data.music,
-      likesCount: 1,
-      commentsCount: 0,
-      sharesCount: 0,
-      isLiked: true,
-      likedByEmails: [activeUserEmail],
-      feedType: 'foryou',
-      linkedProduct: linked
+    const newItem: VideoItem = {
+      id: Date.now().toString(),
+      url: newVideoUrl.trim(),
+      username: '@my_profile',
+      caption: newCaption.trim() || 'วิดีโอใหม่ของฉัน 🚀 #toktak',
+      song: 'เสียงต้นฉบับ - Creator',
+      likes: 1,
+      comments: 0,
     };
 
-    setVideos((prev) => {
-      const updated = [newVideo, ...prev];
-      try {
-        // 1. Global videos list
-        localStorage.setItem('tokdesign_videos', JSON.stringify(updated));
-
-        // 2. Safe isolated storage per-account keyed by Gmail
-        const userClipsKey = `toktak_clips_${activeUserEmail}`;
-        const existingRaw = localStorage.getItem(userClipsKey);
-        const existingList = existingRaw ? JSON.parse(existingRaw) : [];
-        const updatedUserList = [newVideo, ...existingList.filter((v: VideoItem) => v.id !== newClipId)];
-        localStorage.setItem(userClipsKey, JSON.stringify(updatedUserList));
-      } catch (err) {
-        console.warn(err);
-      }
-      return updated;
-    });
-    setFocusedVideoId(newClipId);
-    setCurrentTab('home');
-    setFeedType('foryou');
-    showToast('🎉 โพสต์คลิปใหม่ของคุณขึ้นฟีดเรียบร้อยแล้ว');
-  };
-
-  const handleSellProduct = (data: {
-    name: string;
-    price: number;
-    productType: ProductType;
-    description: string;
-    imageUrl?: string;
-  }) => {
-    const defaultImage =
-      data.productType === 'phonecase'
-        ? '/src/assets/images/phonecase_mockup_1794023818273.jpg'
-        : data.productType === 'totebag'
-        ? '/src/assets/images/totebag_mockup_1794023818674.jpg'
-        : '/src/assets/images/tshirt_mockup_1794023817755.jpg';
-
-    const newProd: ProductItem = {
-      id: `prod-${Date.now()}`,
-      name: data.name,
-      price: data.price,
-      image: data.imageUrl || defaultImage,
-      productType: data.productType,
-      creatorName: 'คุณ (ผู้ใช้)',
-      creatorAvatar: '/src/assets/images/creator_avatar_1794023819826.jpg',
-      salesCount: 0,
-      rating: 5.0,
-      isCustomizable: true,
-      description: data.description
-    };
-    setProducts((prev) => [newProd, ...prev]);
-    setCurrentTab('shop');
-    showToast('🛍️ ลงขายสินค้าเข้าสู่หน้าร้านค้าเรียบร้อยแล้ว');
-  };
-
-  const handlePostService = (data: {
-    title: string;
-    category: any;
-    startingPrice: number;
-    description: string;
-  }) => {
-    const newService: ServiceItem = {
-      id: `srv-${Date.now()}`,
-      title: data.title,
-      category: data.category,
-      categoryLabel:
-        data.category === 'graphic'
-          ? 'ออกแบบกราฟิก'
-          : data.category === 'video'
-          ? 'ถ่ายรูป/วิดีโอ'
-          : data.category === 'screen'
-          ? 'งานสกรีน/ผลิต'
-          : 'วาดภาพประกอบ',
-      creatorName: 'คุณ (ผู้ใช้)',
-      creatorHandle: '@artisan.bkk',
-      creatorAvatar: '/src/assets/images/creator_avatar_1794023819826.jpg',
-      rating: 5.0,
-      reviewCount: 1,
-      startingPrice: data.startingPrice,
-      turnaroundDays: 2,
-      description: data.description,
-      tags: ['CustomWork', 'DirectOrder'],
-      coverImage: '/src/assets/images/tshirt_mockup_1794023817755.jpg'
-    };
-    setServices([newService, ...services]);
-    setCurrentTab('services');
-    showToast('💼 ลงประกาศงานบริการในตลาดฟรีแลนซ์เรียบร้อย');
-  };
-
-  const openDesignStudioWithTemplate = (template: ProductType = 'tshirt') => {
-    setDesignStudioTemplate(template);
-    setShowDesignStudio(true);
+    const updated = [newItem, ...videos];
+    setVideos(updated);
+    setNewVideoUrl('');
+    setNewCaption('');
+    setActiveTab('home');
+    setCurrentIndex(0);
   };
 
   return (
-    <div className="min-h-screen bg-slate-200/70 flex justify-center items-center font-sans antialiased p-0 sm:py-6">
-      {/* Mobile-First Frame */}
-      <main className="w-full max-w-md h-screen max-h-[100dvh] sm:h-[844px] sm:max-h-[844px] sm:rounded-3xl bg-white text-slate-900 relative flex flex-col overflow-hidden shadow-2xl border border-slate-300/80">
-        {/* Global Toast Notification */}
-        {toastMessage && (
-          <div className="absolute top-14 left-4 right-4 z-50 pointer-events-none flex justify-center animate-in fade-in slide-in-from-top-2 duration-200">
-            <div className="bg-slate-900/95 text-white border border-slate-700 text-xs font-semibold px-4 py-2 rounded-full shadow-xl backdrop-blur-md">
-              {toastMessage}
-            </div>
-          </div>
-        )}
-
-        {/* 1. Top Bar (Displayed on Home Tab) with LIVE menu & cleanly aligned actions */}
-        {currentTab === 'home' && !showDesignStudio && !showLiveStream && !focusedVideoId && (
-          <TopBar
-            feedType={feedType}
-            onFeedTypeChange={setFeedType}
-            onOpenLive={() => setShowLiveStream(true)}
-            onOpenDesignStudio={() => openDesignStudioWithTemplate('tshirt')}
-            onOpenSearch={() => setCurrentTab('shop')}
-            isSuperadmin={isAuthorizedAdmin}
-            onOpenAdminBackend={isAuthorizedAdmin ? () => setIsAdminBackendOpen(true) : undefined}
-          />
-        )}
-
-        {/* Floating Admin Quick Button: Strictly visible to Superadmin and Admin only */}
-        {isAuthorizedAdmin &&
-          (currentTab === 'shop' || currentTab === 'services') &&
-          !showDesignStudio &&
-          !showLiveStream && (
-            <button
-              onClick={() => setIsAdminBackendOpen(true)}
-              title="เปิดระบบจัดการหลังบ้าน (Admin Console)"
-              className="fixed sm:absolute bottom-18 right-3.5 z-40 px-3 py-1.5 bg-slate-900/95 hover:bg-slate-800 text-amber-300 border border-amber-400/60 rounded-full text-[11px] font-bold shadow-xl backdrop-blur-md flex items-center gap-1.5 active:scale-90 transition group animate-in fade-in"
+    <div className="flex justify-center items-center bg-black h-[100dvh] w-screen overflow-hidden select-none">
+      {/* Container มือถือ */}
+      <div className="relative w-full max-w-md h-full bg-zinc-950 flex flex-col overflow-hidden shadow-2xl">
+        
+        {/* ส่วนเนื้อหาหลัก */}
+        <div className="flex-1 relative overflow-hidden">
+          
+          {/* แท็บ Home: ฟีดวิดีโอเลื่อนขึ้น-ลง */}
+          {activeTab === 'home' && (
+            <div 
+              className="h-full w-full overflow-y-scroll snap-y snap-mandatory no-scrollbar"
+              onScroll={handleScroll}
             >
-              <Crown className="w-3.5 h-3.5 text-amber-400 fill-amber-400 group-hover:rotate-12 transition-transform" />
-              <span>หลังบ้าน</span>
-            </button>
+              {videos.map((video, index) => (
+                <div 
+                  key={video.id} 
+                  className="relative w-full h-full snap-start flex items-center justify-center bg-black"
+                  onClick={() => togglePlay(index)}
+                >
+                  <video
+                    ref={(el) => (videoRefs.current[index] = el)}
+                    src={video.url}
+                    className="w-full h-full object-cover"
+                    loop
+                    playsInline
+                    muted={false}
+                  />
+
+                  {/* ปุ่มกด Play/Pause ชั่วคราวถ้าหยุด */}
+                  {!isPlaying && index === currentIndex && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
+                      <Play className="w-16 h-16 text-white opacity-80 fill-white" />
+                    </div>
+                  )}
+
+                  {/* รายละเอียดด้านซ้าย (Caption & Sound) */}
+                  <div className="absolute bottom-16 left-4 right-20 text-white z-10 pointer-events-none">
+                    <h3 className="font-bold text-base drop-shadow">{video.username}</h3>
+                    <p className="text-sm mt-1 drop-shadow line-clamp-2">{video.caption}</p>
+                    <div className="flex items-center gap-2 mt-2 text-xs opacity-90">
+                      <Music className="w-3.5 h-3.5 animate-spin" />
+                      <span className="truncate">{video.song}</span>
+                    </div>
+                  </div>
+
+                  {/* ปุ่มกดด้านขวา (Like, Comment, Share) */}
+                  <div className="absolute bottom-20 right-3 flex flex-col items-center gap-4 text-white z-10">
+                    <button className="flex flex-col items-center focus:outline-none" onClick={(e) => { e.stopPropagation(); }}>
+                      <div className="p-3 bg-black/40 rounded-full backdrop-blur-sm active:scale-125 transition-transform">
+                        <Heart className="w-7 h-7 text-white fill-red-500" />
+                      </div>
+                      <span className="text-xs mt-1 font-medium">{video.likes}</span>
+                    </button>
+
+                    <button className="flex flex-col items-center focus:outline-none" onClick={(e) => { e.stopPropagation(); }}>
+                      <div className="p-3 bg-black/40 rounded-full backdrop-blur-sm">
+                        <MessageCircle className="w-7 h-7 text-white fill-white/20" />
+                      </div>
+                      <span className="text-xs mt-1 font-medium">{video.comments}</span>
+                    </button>
+
+                    <button className="flex flex-col items-center focus:outline-none" onClick={(e) => { e.stopPropagation(); }}>
+                      <div className="p-3 bg-black/40 rounded-full backdrop-blur-sm">
+                        <Share2 className="w-7 h-7 text-white" />
+                      </div>
+                      <span className="text-xs mt-1 font-medium">แชร์</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
 
-        {/* Main Content Area based on currentTab */}
-        <div
-          className={`flex-1 relative ${
-            currentTab === 'home'
-              ? 'w-full h-full overflow-hidden bg-black'
-              : 'overflow-y-auto overscroll-y-contain bg-slate-50'
-          }`}
-          style={currentTab === 'home' ? undefined : { WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
-        >
-          {currentTab === 'home' && (
-            <HomeFeedView
-              videos={videos}
-              feedType={feedType === 'live' ? 'foryou' : feedType}
-              onLikeVideo={handleLikeVideo}
-              onOpenComments={(video) => setCommentVideo(video)}
-              onOpenShare={(video) => setShareVideo(video)}
-              onSelectProduct={(product) => setDetailProduct(product)}
-              onOpenDesignStudioForProduct={(template) => openDesignStudioWithTemplate(template)}
-              initialVideoId={focusedVideoId || undefined}
-              onBackToProfile={
-                focusedVideoId
-                  ? () => {
-                      setFocusedVideoId(null);
-                      setCurrentTab('profile');
-                    }
-                  : undefined
-              }
-            />
+          {/* แท็บ Upload: หน้าเพิ่มวิดีโอ */}
+          {activeTab === 'upload' && (
+            <div className="h-full w-full bg-zinc-900 text-white flex flex-col p-6 justify-center">
+              <h2 className="text-xl font-bold mb-6 text-center">อัปโหลดวิดีโอใหม่</h2>
+              <form onSubmit={handleAddVideo} className="flex flex-col gap-4">
+                <div>
+                  <label className="text-xs text-zinc-400 mb-1 block">ลิงก์วิดีโอ (MP4 URL)</label>
+                  <input 
+                    type="url" 
+                    placeholder="https://example.com/video.mp4" 
+                    value={newVideoUrl}
+                    onChange={(e) => setNewVideoUrl(e.target.value)}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-red-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-zinc-400 mb-1 block">คำอธิบาย (Caption)</label>
+                  <textarea 
+                    placeholder="เขียนแคปชันของคุณที่นี่..." 
+                    value={newCaption}
+                    onChange={(e) => setNewCaption(e.target.value)}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-red-500 h-24 resize-none"
+                  />
+                </div>
+                <button 
+                  type="submit" 
+                  className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg transition-colors mt-2"
+                >
+                  โพสต์วิดีโอ
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => setActiveTab('home')}
+                  className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium py-2.5 rounded-lg transition-colors"
+                >
+                  ยกเลิก
+                </button>
+              </form>
+            </div>
           )}
 
-          {currentTab === 'shop' && (
-            <ShopView
-              products={products}
-              onOpenDesignStudio={(template) => openDesignStudioWithTemplate(template || 'tshirt')}
-              onAddToCart={handleAddToCart}
-              onSelectProduct={(product) => setDetailProduct(product)}
-            />
+          {/* แท็บ Profile: หน้าโปรไฟล์ */}
+          {activeTab === 'profile' && (
+            <div className="h-full w-full bg-zinc-900 text-white flex flex-col items-center pt-12 px-6 overflow-y-auto">
+              <div className="w-20 h-20 bg-gradient-to-tr from-yellow-400 to-red-500 rounded-full flex items-center justify-center text-2xl font-bold mb-3 shadow-lg">
+                TH
+              </div>
+              <h2 className="text-lg font-bold">@my_profile</h2>
+              <p className="text-xs text-zinc-400 mt-1">ผู้สร้างคอนเทนต์วิดีโอสั้น</p>
+              
+              <div className="flex gap-6 mt-6 text-center">
+                <div>
+                  <span className="block font-bold text-base">{videos.length}</span>
+                  <span className="text-xs text-zinc-400">โพสต์</span>
+                </div>
+                <div>
+                  <span className="block font-bold text-base">1.5M</span>
+                  <span className="text-xs text-zinc-400">ผู้ติดตาม</span>
+                </div>
+                <div>
+                  <span className="block font-bold text-base">3.2M</span>
+                  <span className="text-xs text-zinc-400">ถูกใจ</span>
+                </div>
+              </div>
+
+              <div className="w-full mt-8 border-t border-zinc-800 pt-4">
+                <h3 className="text-xs font-semibold text-zinc-400 mb-3">วิดีโอของคุณ ({videos.length})</h3>
+                <div className="grid grid-cols-3 gap-1">
+                  {videos.map((v, i) => (
+                    <div key={v.id} className="aspect-[9/16] bg-zinc-800 relative overflow-hidden rounded">
+                      <video src={v.url} className="w-full h-full object-cover" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           )}
 
-          {currentTab === 'services' && (
-            <ServicesView
-              services={services}
-              onOpenCreateModal={() => setIsCreateModalOpen(true)}
-              onOpenTokTakShop={() => setIsTokTakShopOpen(true)}
-            />
-          )}
-
-          {currentTab === 'profile' && (
-            <ProfileView
-              currentUser={currentUser}
-              onLoginWithGoogle={handleLoginWithGoogle}
-              onLogout={handleLogout}
-              onUpdateProfile={handleUpdateProfile}
-              cart={cart}
-              onRemoveFromCart={handleRemoveFromCart}
-              onClearCart={handleClearCart}
-              onOpenDesignStudio={() => openDesignStudioWithTemplate('tshirt')}
-              onOpenCreateClip={() => setIsCreateModalOpen(true)}
-              onOpenAdminBackend={isAuthorizedAdmin ? () => setIsAdminBackendOpen(true) : undefined}
-              onOpenTokTakShop={() => setIsTokTakShopOpen(true)}
-              onPlayVideo={(v) => {
-                setFocusedVideoId(v.id);
-                setCurrentTab('home');
-                setFeedType('foryou');
-              }}
-              onDeleteVideo={handleDeleteVideo}
-              onToggleVideoPrivacy={handleToggleVideoPrivacy}
-              myProducts={products}
-              myVideos={videos}
-            />
-          )}
         </div>
 
-        {/* 2. Bottom Tab Bar (5 compact buttons) */}
-        {!showDesignStudio && !showLiveStream && (
-          <BottomTabBar
-            currentTab={currentTab}
-            onTabChange={(tab) => setCurrentTab(tab)}
-            onOpenCreateModal={() => setIsCreateModalOpen(true)}
-            cartCount={cart.length}
-            currentUser={currentUser}
-          />
-        )}
+        {/* แถบเมนูด้านล่างสุด (Bottom Navigation) ตรึงถาวร */}
+        <div className="h-14 bg-black border-t border-zinc-900 flex items-center justify-around px-2 z-20 shrink-0">
+          <button 
+            onClick={() => setActiveTab('home')} 
+            className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'home' ? 'text-white' : 'text-zinc-500'}`}
+          >
+            <Home className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">หน้าหลัก</span>
+          </button>
 
-        {/* 3. Live Stream View (Interactive TikTok Live Experience) */}
-        {showLiveStream && (
-          <LiveStreamView
-            onClose={() => setShowLiveStream(false)}
-            onSelectProduct={(product) => setDetailProduct(product)}
-            onOpenDesignStudio={(template) => openDesignStudioWithTemplate(template)}
-            pinnedProduct={products[0]}
-            currentUser={currentUser}
-          />
-        )}
+          <button 
+            onClick={() => setActiveTab('home')} 
+            className="flex flex-col items-center justify-center w-12 h-full text-zinc-500"
+          >
+            <Compass className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">สำรวจ</span>
+          </button>
 
-        {/* 4. Design Studio View (Sub-view overlay) */}
-        {showDesignStudio && (
-          <DesignStudioView
-            initialProductType={designStudioTemplate}
-            onClose={() => setShowDesignStudio(false)}
-            onAddToCart={handleAddCustomToCart}
-          />
-        )}
+          {/* ปุ่มบวกตรงกลาง */}
+          <button 
+            onClick={() => setActiveTab('upload')} 
+            className="flex items-center justify-center w-10 h-7 bg-white rounded-md text-black hover:bg-zinc-200 transition-colors shadow"
+          >
+            <PlusSquare className="w-5 h-5 fill-white text-black" />
+          </button>
 
-        {/* Modals */}
-        <CreateModal
-          isOpen={isCreateModalOpen}
-          onClose={() => setIsCreateModalOpen(false)}
-          currentUser={currentUser}
-          products={products}
-          onUploadClip={handleUploadClip}
-          onSellProduct={handleSellProduct}
-          onPostService={handlePostService}
-          onGoLive={() => setShowLiveStream(true)}
-        />
+          <button 
+            onClick={() => setActiveTab('home')} 
+            className="flex flex-col items-center justify-center w-12 h-full text-zinc-500"
+          >
+            <Inbox className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">กล่องข้อความ</span>
+          </button>
 
-        <CommentModal
-          isOpen={!!commentVideo}
-          onClose={() => setCommentVideo(null)}
-          videoCaption={commentVideo?.caption || ''}
-        />
+          <button 
+            onClick={() => setActiveTab('profile')} 
+            className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'profile' ? 'text-white' : 'text-zinc-500'}`}
+          >
+            <User className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">ฉัน</span>
+          </button>
+        </div>
 
-        <ShareModal
-          isOpen={!!shareVideo}
-          onClose={() => setShareVideo(null)}
-          title={shareVideo?.caption || 'แชร์คอนเทนต์ TokDesign'}
-          videoUrl={shareVideo?.videoUrl}
-        />
-
-        <ProductDetailModal
-          product={detailProduct}
-          onClose={() => setDetailProduct(null)}
-          onAddToCart={handleAddToCart}
-          onOpenDesignStudio={(type) => openDesignStudioWithTemplate(type)}
-        />
-
-        {/* Admin Backend Management Modal: Strictly restricted to Superadmin and Admin only */}
-        {isAuthorizedAdmin && (
-          <AdminBackendModal
-            isOpen={isAdminBackendOpen}
-            onClose={() => setIsAdminBackendOpen(false)}
-            products={products}
-            onUpdateProducts={(updated) => {
-              setProducts(updated);
-              showToast('✅ อัปเดตรายการสินค้าหน้าร้านเรียบร้อยแล้ว');
-            }}
-            videos={videos}
-            onUpdateVideos={(updated) => {
-              setVideos(updated);
-              showToast('✅ อัปเดตคอนเทนต์และคลิปวิดีโอเรียบร้อยแล้ว');
-            }}
-            orders={orders}
-            onUpdateOrders={(updated) => {
-              setOrders(updated);
-              showToast('✅ อัปเดตสถานะคำสั่งซื้อเรียบร้อยแล้ว');
-            }}
-            superadminEmail="goldenrivercity@gmail.com"
-          />
-        )}
-
-        {/* TokTak Shop Creator Center & Basket Pinning Registration Modal */}
-        <TokTakCreatorShopModal
-          isOpen={isTokTakShopOpen}
-          onClose={() => setIsTokTakShopOpen(false)}
-          products={products}
-          currentUserEmail={currentUser?.email}
-          currentUserName={currentUser?.name}
-          onPinProductToClip={(product) => {
-            showToast(`🛒 ปักตะกร้า "${product.name}" ในคลิปถัดไปเรียบร้อยแล้ว`);
-          }}
-        />
-      </main>
+      </div>
     </div>
   );
 }
+
+            
+
+    
+     
+  
