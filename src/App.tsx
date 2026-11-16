@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Heart, MessageCircle, Share2, Music, Home, Compass, PlusSquare, Inbox, User, Play, ShoppingBag, Send } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Music, Home, Compass, PlusSquare, Inbox, User, Play, ShoppingBag, Send, Upload } from 'lucide-react';
 
 interface CommentItem {
   id: string;
@@ -40,25 +40,13 @@ const INITIAL_VIDEOS: VideoItem[] = [
     commentList: [
       { id: 'c1', username: '@user_a', text: 'น่ารักมากๆ เลยครับซื้อจากไหนเนี่ย', time: '1 วันที่แล้ว' }
     ]
-  },
-  {
-    id: '2',
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-cute-dog-head-tilt-41585-large.mp4',
-    username: '@pet_world',
-    caption: 'เอียงคอสงสัยอะไรอยู่นะเจ้าตัวเล็ก 🐾❤️ #หมาน่ารัก #tiktokpets',
-    song: 'เสียงต้นฉบับ - Pet World',
-    likes: 3420,
-    comments: 120,
-    shares: 85,
-    hasProduct: false,
-    commentList: []
   }
 ];
 
 export default function App() {
   const [videos, setVideos] = useState<VideoItem[]>(() => {
     try {
-      const saved = localStorage.getItem('toktak_stable_v4');
+      const saved = localStorage.getItem('toktak_fresh_v1');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -78,8 +66,8 @@ export default function App() {
   const [showCartModal, setShowCartModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<{name: string, price: string} | null>(null);
 
-  // ฟอร์มเพิ่มวิดีโอ (ใช้ลิงก์ MP4 ปลอดภัย รีเฟรชไม่หาย)
-  const [newVideoUrl, setNewVideoUrl] = useState('');
+  // ฟอร์มเพิ่มวิดีโอ (อัปโหลดจากเครื่องแปลงเป็น Base64 ป้องกันรีเฟรชหาย)
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string>('');
   const [newCaption, setNewCaption] = useState('');
   const [newSong, setNewSong] = useState('');
   const [hasProd, setHasProd] = useState(false);
@@ -90,7 +78,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('toktak_stable_v4', JSON.stringify(videos));
+      localStorage.setItem('toktak_fresh_v1', JSON.stringify(videos));
     } catch (e) {
       console.error('Error saving localStorage', e);
     }
@@ -164,13 +152,27 @@ export default function App() {
     setNewCommentText('');
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setVideoPreviewUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleAddVideo = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newVideoUrl.trim()) return;
+    if (!videoPreviewUrl) {
+      alert('กรุณาเลือกไฟล์วิดีโอก่อนครับ');
+      return;
+    }
 
     const newItem: VideoItem = {
       id: Date.now().toString(),
-      url: newVideoUrl.trim(),
+      url: videoPreviewUrl,
       username: '@my_profile',
       caption: newCaption.trim() || 'วิดีโอใหม่ของฉัน 🚀',
       song: newSong.trim() || 'เสียงต้นฉบับ - Creator',
@@ -184,7 +186,7 @@ export default function App() {
     };
 
     setVideos([newItem, ...videos]);
-    setNewVideoUrl('');
+    setVideoPreviewUrl('');
     setNewCaption('');
     setNewSong('');
     setHasProd(false);
@@ -273,22 +275,29 @@ export default function App() {
             </div>
           )}
 
-          {/* แท็บอัปโหลดวิดีโอ */}
+          {/* แท็บอัปโหลดวิดีโอจากเครื่อง */}
           {activeTab === 'upload' && (
             <div className="h-full w-full bg-zinc-900 text-white flex flex-col p-6 overflow-y-auto">
-              <h2 className="text-xl font-bold mb-4 text-center mt-2">เพิ่มวิดีโอใหม่</h2>
+              <h2 className="text-xl font-bold mb-4 text-center mt-2">อัปโหลดวิดีโอจากเครื่อง</h2>
               <form onSubmit={handleAddVideo} className="flex flex-col gap-3 pb-12">
                 <div>
-                  <label className="text-xs text-zinc-400 mb-1 block">ลิงก์วิดีโอ (MP4 URL)</label>
-                  <input 
-                    type="url" 
-                    placeholder="https://assets.mixkit.co/.../video.mp4" 
-                    value={newVideoUrl}
-                    onChange={(e) => setNewVideoUrl(e.target.value)}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-red-500"
-                    required
-                  />
+                  <label className="text-xs text-zinc-400 mb-1 block">เลือกไฟล์วิดีโอ (MP4)</label>
+                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-zinc-700 border-dashed rounded-xl cursor-pointer bg-zinc-800/50 hover:bg-zinc-800 transition-colors">
+                    <div className="flex flex-col items-center pt-5 pb-6">
+                      <Upload className="w-8 h-8 text-zinc-400 mb-2" />
+                      <p className="text-xs text-zinc-300 font-medium">คลิกเพื่อเลือกไฟล์วิดีโอ</p>
+                      <p className="text-[10px] text-zinc-500 mt-0.5">รองรับไฟล์ MP4 จากคอมหรือมือถือ</p>
+                    </div>
+                    <input type="file" accept="video/*" onChange={handleFileChange} className="hidden" />
+                  </label>
                 </div>
+
+                {videoPreviewUrl && (
+                  <div className="w-full h-32 bg-black rounded-lg overflow-hidden border border-zinc-700">
+                    <video src={videoPreviewUrl} className="w-full h-full object-contain" controls />
+                  </div>
+                )}
+
                 <div>
                   <label className="text-xs text-zinc-400 mb-1 block">คำอธิบาย (Caption)</label>
                   <textarea 
@@ -348,7 +357,7 @@ export default function App() {
             </div>
           )}
 
-          {/* แท็บหน้าบริการ / สำรวจ */}
+          {/* แท็บหน้าบริการ */}
           {activeTab === 'services' && (
             <div className="h-full w-full bg-zinc-900 text-white flex flex-col p-6 overflow-y-auto">
               <h2 className="text-xl font-bold mb-4 text-center mt-2">ศูนย์รวมบริการและสินค้า</h2>
@@ -356,16 +365,16 @@ export default function App() {
                 <div className="bg-zinc-800 p-4 rounded-xl border border-zinc-700 flex flex-col justify-between">
                   <div>
                     <ShoppingBag className="w-8 h-8 text-red-500 mb-2" />
-                    <h3 className="font-bold text-sm">ตะกร้าสินค้าทั้งหมด</h3>
-                    <p className="text-xs text-zinc-400 mt-1">จัดการสินค้าที่พ่วงในคลิปวิดีโอ</p>
+                    <h3 className="font-bold text-sm">ตะกร้าสินค้า</h3>
+                    <p className="text-xs text-zinc-400 mt-1">จัดการสินค้าพ่วงในคลิป</p>
                   </div>
-                  <span className="text-xs bg-red-600 text-white py-1 px-2 rounded mt-4 text-center font-bold">ใช้งานอยู่</span>
+                  <span className="text-xs bg-red-600 text-white py-1 px-2 rounded mt-4 text-center font-bold">พร้อมใช้งาน</span>
                 </div>
                 <div className="bg-zinc-800 p-4 rounded-xl border border-zinc-700 flex flex-col justify-between">
                   <div>
                     <Compass className="w-8 h-8 text-blue-500 mb-2" />
-                    <h3 className="font-bold text-sm">สำรวจคลิปยอดฮิต</h3>
-                    <p className="text-xs text-zinc-400 mt-1">ฟีดวิดีโอแนะนำสำหรับคุณ</p>
+                    <h3 className="font-bold text-sm">สำรวจฟีด</h3>
+                    <p className="text-xs text-zinc-400 mt-1">ดูวิดีโอทั้งหมด</p>
                   </div>
                   <button onClick={() => setActiveTab('home')} className="text-xs bg-blue-600 text-white py-1 px-2 rounded mt-4 text-center font-bold">ไปที่ฟีด</button>
                 </div>
