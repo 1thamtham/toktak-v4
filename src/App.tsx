@@ -72,16 +72,10 @@ const INITIAL_PRODUCTS: ProductItem[] = [
 export default function App() {
   const [videos, setVideos] = useState<VideoItem[]>(() => {
     try {
-      const saved = localStorage.getItem('toktak_safe_v3');
+      const saved = localStorage.getItem('toktak_working_v4');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // ป้องกันลิงก์พัง รีเฟรชแล้วดึงวิดีโอสำรองที่เสถียรมาแทนถ้าเป็นลิงก์เสีย
-          return parsed.map((v: VideoItem) => ({
-            ...v,
-            url: (!v.url || v.url.startsWith('blob:')) ? 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4' : v.url
-          }));
-        }
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
     } catch (e) {
       console.error('Error loading localStorage', e);
@@ -99,7 +93,7 @@ export default function App() {
   const [showCartModal, setShowCartModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<{name: string, price: string} | null>(null);
 
-  const [videoFileUrl, setVideoFileUrl] = useState<string>('');
+  const [pendingVideoUrl, setPendingVideoUrl] = useState<string>('');
   const [newCaption, setNewCaption] = useState('');
   const [newSong, setNewSong] = useState('');
   const [hasProd, setHasProd] = useState(false);
@@ -110,11 +104,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      const safeVideos = videos.map(v => ({
-        ...v,
-        url: v.url.startsWith('blob:') ? 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4' : v.url
-      }));
-      localStorage.setItem('toktak_safe_v3', JSON.stringify(safeVideos));
+      localStorage.setItem('toktak_working_v4', JSON.stringify(videos));
     } catch (e) {
       console.error('Error saving localStorage', e);
     }
@@ -188,21 +178,28 @@ export default function App() {
     setNewCommentText('');
   };
 
+  // ฟังก์ชันเลือกไฟล์แล้วอ่านค่าเป็น Base64 ทันที เพื่อให้อัปโหลดติดและเล่นได้ชัวร์
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const fileUrl = URL.createObjectURL(file);
-      setVideoFileUrl(fileUrl);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPendingVideoUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
   const handleAddVideo = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // ใช้คลิปวิดีโอมาตรฐานที่เสถียรที่สุดเพื่อป้องกันปัญหารีเฟรชแล้วจอเทาหาย
+    if (!pendingVideoUrl) {
+      alert('กรุณาเลือกไฟล์วิดีโอก่อนกดโพสต์ครับ!');
+      return;
+    }
+
     const newItem: VideoItem = {
       id: Date.now().toString(),
-      url: 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4',
+      url: pendingVideoUrl,
       username: '@my_profile',
       caption: newCaption.trim() || 'วิดีโอใหม่ของฉัน 🚀',
       song: newSong.trim() || 'เสียงต้นฉบับ - Creator',
@@ -216,7 +213,7 @@ export default function App() {
     };
 
     setVideos([newItem, ...videos]);
-    setVideoFileUrl('');
+    setPendingVideoUrl('');
     setNewCaption('');
     setNewSong('');
     setHasProd(false);
@@ -311,16 +308,22 @@ export default function App() {
               <h2 className="text-xl font-bold mb-4 text-center mt-2 text-gray-900">โพสต์วิดีโอใหม่</h2>
               <form onSubmit={handleAddVideo} className="flex flex-col gap-3 pb-12">
                 <div>
-                  <label className="text-xs text-gray-600 mb-1 block font-semibold">เลือกไฟล์วิดีโอ</label>
-                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-xl cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
-                    <div className="flex flex-col items-center pt-5 pb-6">
-                      <Upload className="w-8 h-8 text-gray-500 mb-2" />
-                      <p className="text-xs text-gray-700 font-medium">คลิกเลือกวิดีโอจากเครื่อง</p>
-                      <p className="text-[10px] text-gray-500 mt-0.5">ระบบจะบันทึกและแสดงผลเสถียรไม่หาย</p>
+                  <label className="text-xs text-gray-600 mb-1 block font-semibold">เลือกไฟล์วิดีโอจากเครื่อง</label>
+                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-red-400 border-dashed rounded-xl cursor-pointer bg-red-50 hover:bg-red-100 transition-colors">
+                    <div className="flex flex-col items-center pt-5 pb-6 px-2 text-center">
+                      <Upload className="w-8 h-8 text-red-600 mb-2" />
+                      <p className="text-xs text-gray-800 font-bold">{pendingVideoUrl ? '✓ เลือกไฟล์วิดีโอสำเร็จแล้ว' : 'คลิกเพื่อเลือกไฟล์วิดีโอ (MP4)'}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">เลือกปุ๊บ โพสต์ปั๊บ เล่นได้ทันที!</p>
                     </div>
                     <input type="file" accept="video/*" onChange={handleFileChange} className="hidden" />
                   </label>
                 </div>
+
+                {pendingVideoUrl && (
+                  <div className="w-full h-32 bg-black rounded-lg overflow-hidden border border-gray-300">
+                    <video src={pendingVideoUrl} className="w-full h-full object-contain" controls />
+                  </div>
+                )}
 
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block font-semibold">คำอธิบาย (Caption)</label>
