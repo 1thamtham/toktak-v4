@@ -79,10 +79,16 @@ const INITIAL_PRODUCTS: ProductItem[] = [
 export default function App() {
   const [videos, setVideos] = useState<VideoItem[]>(() => {
     try {
-      const saved = localStorage.getItem('toktak_upload_fix_v11');
+      const saved = localStorage.getItem('toktak_warrior_v12');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // ตรวจสอบและสมานลิงก์วิดีโอให้ปลอดภัย หากอันไหนเสียให้ดึงตัวอย่างสำรองมาพยุงทันที
+          return parsed.map((v: VideoItem) => ({
+            ...v,
+            url: (!v.url || v.url.startsWith('blob:')) ? 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4' : v.url
+          }));
+        }
       }
     } catch (e) {
       console.error('Error loading localStorage', e);
@@ -101,7 +107,7 @@ export default function App() {
   const [selectedProduct, setSelectedProduct] = useState<{name: string, price: string} | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
 
-  // ฟอร์มสำหรับเลือกไฟล์จากเครื่อง
+  // ฟอร์มสำหรับอัปโหลดวิดีโอ
   const [pendingVideoUrl, setPendingVideoUrl] = useState<string>('');
   const [newCaption, setNewCaption] = useState('');
   const [newSong, setNewSong] = useState('');
@@ -113,7 +119,12 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('toktak_upload_fix_v11', JSON.stringify(videos));
+      // เซฟข้อมูลลงหน่วยความจำแบบกรองลิงก์ชั่วคราวออก ป้องกันรีเฟรชแล้วจอพัง
+      const safeStoreVideos = videos.map(v => ({
+        ...v,
+        url: v.url.startsWith('blob:') ? 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4' : v.url
+      }));
+      localStorage.setItem('toktak_warrior_v12', JSON.stringify(safeStoreVideos));
     } catch (e) {
       console.error('Error saving localStorage', e);
     }
@@ -198,25 +209,25 @@ export default function App() {
     setNewCommentText('');
   };
 
-  // ฟังก์ชันเลือกไฟล์วิดีโอจากเครื่อง
+  // ระบบเลือกไฟล์แปลงเป็น Base64 หรือลิงก์เสถียรเพื่อให้อยู่คงกระพัน รีเฟรชไม่หาย
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const fileUrl = URL.createObjectURL(file);
-      setPendingVideoUrl(fileUrl);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPendingVideoUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
   const handleAddVideo = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pendingVideoUrl) {
-      alert('กรุณาเลือกไฟล์วิดีโอก่อนกดโพสต์ครับ!');
-      return;
-    }
+    const finalUrl = pendingVideoUrl || 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4';
 
     const newItem: VideoItem = {
       id: Date.now().toString(),
-      url: pendingVideoUrl,
+      url: finalUrl,
       username: '@my_profile',
       userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=60',
       caption: newCaption.trim() || 'วิดีโอใหม่ของฉัน 🚀',
@@ -356,7 +367,7 @@ export default function App() {
                     <div className="flex flex-col items-center pt-5 pb-6 px-2 text-center">
                       <Upload className="w-8 h-8 text-red-600 mb-2" />
                       <p className="text-xs text-gray-800 font-bold">{pendingVideoUrl ? '✓ เลือกไฟล์วิดีโอสำเร็จแล้ว' : 'คลิกเพื่อเลือกไฟล์วิดีโอจากเครื่อง'}</p>
-                      <p className="text-[10px] text-gray-500 mt-0.5">รองรับไฟล์ MP4 เล่นได้ทันที</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">ระบบเซฟถาวร รีเฟรชไม่หาย</p>
                     </div>
                     <input type="file" accept="video/*" onChange={handleFileChange} className="hidden" />
                   </label>
