@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Heart, MessageCircle, Share2, Music, Home, Compass, PlusSquare, Inbox, User, Play, Pause, ShoppingBag, Send, Bookmark, MoreVertical, Sparkles } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Music, Home, Compass, PlusSquare, Inbox, User, Play, Pause, ShoppingBag, Send, Upload } from 'lucide-react';
 
 interface CommentItem {
   id: string;
@@ -83,8 +83,9 @@ export default function App() {
   const [showCartModal, setShowCartModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<{name: string, price: string} | null>(null);
 
-  // ฟอร์มสำหรับอัปโหลดวิดีโอใหม่
-  const [newVideoUrl, setNewVideoUrl] = useState('');
+  // ฟอร์มสำหรับอัปโหลดวิดีโอใหม่ (เปลี่ยนเป็นรับไฟล์จากเครื่อง)
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string>('');
   const [newCaption, setNewCaption] = useState('');
   const [newSong, setNewSong] = useState('');
   const [hasProd, setHasProd] = useState(false);
@@ -159,7 +160,6 @@ export default function App() {
     e.preventDefault();
     if (!newCommentText.trim()) return;
 
-    const currentVid = videos[currentIndex];
     const newComment: CommentItem = {
       id: Date.now().toString(),
       username: '@my_profile',
@@ -182,13 +182,26 @@ export default function App() {
     setNewCommentText('');
   };
 
+  // ฟังก์ชันเลือกไฟล์วิดีโอจากเครื่อง
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setVideoFile(file);
+      const fileUrl = URL.createObjectURL(file);
+      setVideoPreviewUrl(fileUrl);
+    }
+  };
+
   const handleAddVideo = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newVideoUrl.trim()) return;
+    if (!videoPreviewUrl) {
+      alert('กรุณาเลือกไฟล์วิดีโอก่อนโพสต์ครับ');
+      return;
+    }
 
     const newItem: VideoItem = {
       id: Date.now().toString(),
-      url: newVideoUrl.trim(),
+      url: videoPreviewUrl,
       username: '@my_profile',
       caption: newCaption.trim() || 'วิดีโอใหม่ของฉัน 🚀 #toktak',
       song: newSong.trim() || 'เสียงต้นฉบับ - Creator',
@@ -202,7 +215,8 @@ export default function App() {
     };
 
     setVideos([newItem, ...videos]);
-    setNewVideoUrl('');
+    setVideoFile(null);
+    setVideoPreviewUrl('');
     setNewCaption('');
     setNewSong('');
     setHasProd(false);
@@ -313,31 +327,49 @@ export default function App() {
             </div>
           )}
 
-          {/* แท็บ Upload: หน้าเพิ่มวิดีโอ */}
+          {/* แท็บ Upload: หน้าเพิ่มวิดีโอ (เปลี่ยนเป็นเลือกไฟล์จากคอมพิวเตอร์/มือถือ) */}
           {activeTab === 'upload' && (
             <div className="h-full w-full bg-zinc-900 text-white flex flex-col p-6 overflow-y-auto">
-              <h2 className="text-xl font-bold mb-6 text-center mt-4">อัปโหลดวิดีโอใหม่</h2>
-              <form onSubmit={handleAddVideo} className="flex flex-col gap-4 pb-12">
+              <h2 className="text-xl font-bold mb-4 text-center mt-2">อัปโหลดวิดีโอจากเครื่อง</h2>
+              
+              <form onSubmit={handleAddVideo} className="flex flex-col gap-3 pb-12">
+                {/* ส่วนเลือกไฟล์วิดีโอ */}
                 <div>
-                  <label className="text-xs text-zinc-400 mb-1 block">ลิงก์วิดีโอ (MP4 URL)</label>
-                  <input 
-                    type="url" 
-                    placeholder="https://example.com/video.mp4" 
-                    value={newVideoUrl}
-                    onChange={(e) => setNewVideoUrl(e.target.value)}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-red-500"
-                    required
-                  />
+                  <label className="text-xs text-zinc-400 mb-1 block">เลือกไฟล์วิดีโอ (MP4, MOV)</label>
+                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-zinc-700 border-dashed rounded-xl cursor-pointer bg-zinc-800/50 hover:bg-zinc-800 transition-colors">
+                    {videoFile ? (
+                      <div className="flex flex-col items-center text-center p-2">
+                        <p className="text-xs font-semibold text-green-400 truncate max-w-[250px]">✓ {videoFile.name}</p>
+                        <span className="text-[10px] text-zinc-400 mt-1">คลิกเพื่อเปลี่ยนไฟล์</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center pt-5 pb-6">
+                        <Upload className="w-8 h-8 text-zinc-400 mb-2" />
+                        <p className="text-xs text-zinc-300 font-medium">คลิกเพื่อเลือกวิดีโอจากคอม/มือถือ</p>
+                        <p className="text-[10px] text-zinc-500 mt-0.5">MP4 หรือไฟล์วิดีโอทั่วไป</p>
+                      </div>
+                    )}
+                    <input type="file" accept="video/*" onChange={handleFileChange} className="hidden" />
+                  </label>
                 </div>
+
+                {/* แสดงตัวอย่างวิดีโอย่อตอนเลือกเสร็จ */}
+                {videoPreviewUrl && (
+                  <div className="w-full h-36 bg-black rounded-lg overflow-hidden relative border border-zinc-700">
+                    <video src={videoPreviewUrl} className="w-full h-full object-contain" controls />
+                  </div>
+                )}
+
                 <div>
                   <label className="text-xs text-zinc-400 mb-1 block">คำอธิบาย (Caption)</label>
                   <textarea 
                     placeholder="เขียนแคปชันของคุณที่นี่..." 
                     value={newCaption}
                     onChange={(e) => setNewCaption(e.target.value)}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-red-500 h-20 resize-none"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-red-500 h-16 resize-none"
                   />
                 </div>
+
                 <div>
                   <label className="text-xs text-zinc-400 mb-1 block">ชื่อเพลง / เสียงประกอบ</label>
                   <input 
@@ -345,15 +377,15 @@ export default function App() {
                     placeholder="เสียงต้นฉบับ - Creator" 
                     value={newSong}
                     onChange={(e) => setNewSong(e.target.value)}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-red-500"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-red-500"
                   />
                 </div>
 
                 {/* ตะกร้าสินค้าสวิทช์ */}
-                <div className="bg-zinc-800/50 p-4 rounded-xl border border-zinc-700">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-semibold flex items-center gap-2">
-                      <ShoppingBag className="w-4 h-4 text-red-500" /> พ่วงตะกร้าสินค้า
+                <div className="bg-zinc-800/50 p-3 rounded-xl border border-zinc-700">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold flex items-center gap-1.5">
+                      <ShoppingBag className="w-3.5 h-3.5 text-red-500" /> พ่วงตะกร้าสินค้า
                     </span>
                     <input 
                       type="checkbox" 
@@ -363,20 +395,20 @@ export default function App() {
                     />
                   </div>
                   {hasProd && (
-                    <div className="flex flex-col gap-3 mt-2">
+                    <div className="flex flex-col gap-2 mt-2">
                       <input 
                         type="text" 
                         placeholder="ชื่อสินค้า เช่น เสื้อยืดสุดเท่" 
                         value={prodName}
                         onChange={(e) => setProdName(e.target.value)}
-                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-2.5 text-xs text-white"
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-2 text-xs text-white"
                       />
                       <input 
                         type="text" 
                         placeholder="ราคา เช่น ฿290" 
                         value={prodPrice}
                         onChange={(e) => setProdPrice(e.target.value)}
-                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-2.5 text-xs text-white"
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-2 text-xs text-white"
                       />
                     </div>
                   )}
@@ -384,7 +416,7 @@ export default function App() {
 
                 <button 
                   type="submit" 
-                  className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg transition-colors mt-2 shadow-lg"
+                  className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg transition-colors mt-1 shadow-lg text-sm"
                 >
                   โพสต์วิดีโอทันที
                 </button>
