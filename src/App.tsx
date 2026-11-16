@@ -48,6 +48,18 @@ const INITIAL_VIDEOS: VideoItem[] = [
     commentList: [
       { id: 'c1', username: '@user_a', text: 'น่ารักมากๆ เลยครับซื้อจากไหนเนี่ย', time: '1 วันที่แล้ว' }
     ]
+  },
+  {
+    id: '2',
+    url: 'https://assets.mixkit.co/videos/preview/mixkit-cute-dog-head-tilt-41585-large.mp4',
+    username: '@pet_world',
+    caption: 'เอียงคอสงสัยอะไรอยู่นะเจ้าตัวเล็ก 🐾❤️ #หมาน่ารัก #tiktokpets',
+    song: 'เสียงต้นฉบับ - Pet World',
+    likes: 3420,
+    comments: 120,
+    shares: 85,
+    hasProduct: false,
+    commentList: []
   }
 ];
 
@@ -60,7 +72,7 @@ const INITIAL_PRODUCTS: ProductItem[] = [
 export default function App() {
   const [videos, setVideos] = useState<VideoItem[]>(() => {
     try {
-      const saved = localStorage.getItem('toktak_shop_v1');
+      const saved = localStorage.getItem('toktak_light_v1');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -81,7 +93,6 @@ export default function App() {
   const [showCartModal, setShowCartModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<{name: string, price: string} | null>(null);
 
-  // ฟอร์มเพิ่มวิดีโอ
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string>('');
   const [newCaption, setNewCaption] = useState('');
   const [newSong, setNewSong] = useState('');
@@ -93,7 +104,12 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('toktak_shop_v1', JSON.stringify(videos));
+      // เซฟเฉพาะข้อมูล Text และ URL ปกติเพื่อไม่ให้หน่วยความจำเต็ม
+      const lightVideos = videos.map(v => ({
+        ...v,
+        url: v.url.startsWith('blob:') || v.url.startsWith('data:') ? 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4' : v.url
+      }));
+      localStorage.setItem('toktak_light_v1', JSON.stringify(lightVideos));
     } catch (e) {
       console.error('Error saving localStorage', e);
     }
@@ -170,11 +186,8 @@ export default function App() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setVideoPreviewUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      const fileUrl = URL.createObjectURL(file);
+      setVideoPreviewUrl(fileUrl);
     }
   };
 
@@ -187,7 +200,7 @@ export default function App() {
 
     const newItem: VideoItem = {
       id: Date.now().toString(),
-      url: videoPreviewUrl,
+      url: 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4',
       username: '@my_profile',
       caption: newCaption.trim() || 'วิดีโอใหม่ของฉัน 🚀',
       song: newSong.trim() || 'เสียงต้นฉบับ - Creator',
@@ -212,10 +225,10 @@ export default function App() {
   };
 
   return (
-    <div className="flex justify-center items-center bg-zinc-950 h-[100dvh] w-screen overflow-hidden select-none">
-      <div className="relative w-full max-w-md h-full bg-black flex flex-col overflow-hidden shadow-2xl border-x border-zinc-900">
+    <div className="flex justify-center items-center bg-gray-100 h-[100dvh] w-screen overflow-hidden select-none">
+      <div className="relative w-full max-w-md h-full bg-white flex flex-col overflow-hidden shadow-2xl border-x border-gray-200">
         
-        <div className="flex-1 relative overflow-hidden">
+        <div className="flex-1 relative overflow-hidden bg-black">
           
           {/* แท็บหน้าหลัก (Home Feed) */}
           {activeTab === 'home' && (
@@ -245,10 +258,10 @@ export default function App() {
                           setSelectedProduct({ name: video.productName || 'สินค้า', price: video.productPrice || '฿0' });
                           setShowCartModal(true);
                         }}
-                        className="flex items-center gap-1.5 bg-zinc-900/80 backdrop-blur-md border border-red-500/50 text-white px-3 py-1.5 rounded-full shadow-lg"
+                        className="flex items-center gap-1.5 bg-white/90 backdrop-blur-md border border-red-500 text-gray-900 px-3 py-1.5 rounded-full shadow-lg"
                       >
-                        <ShoppingBag className="w-4 h-4 text-red-500 animate-bounce" />
-                        <span className="text-xs font-semibold truncate max-w-[150px]">{video.productName}</span>
+                        <ShoppingBag className="w-4 h-4 text-red-600 animate-bounce" />
+                        <span className="text-xs font-bold truncate max-w-[150px]">{video.productName}</span>
                         <span className="text-xs bg-red-600 px-1.5 py-0.5 rounded text-white font-bold">{video.productPrice}</span>
                       </button>
                     </div>
@@ -290,53 +303,53 @@ export default function App() {
             </div>
           )}
 
-          {/* แท็บอัปโหลดวิดีโอจากเครื่อง */}
+          {/* แท็บอัปโหลดวิดีโอจากเครื่อง (พื้นหลังสีขาวสะอาดตา) */}
           {activeTab === 'upload' && (
-            <div className="h-full w-full bg-zinc-900 text-white flex flex-col p-6 overflow-y-auto">
-              <h2 className="text-xl font-bold mb-4 text-center mt-2">อัปโหลดวิดีโอจากเครื่อง</h2>
+            <div className="absolute inset-0 bg-white text-gray-900 flex flex-col p-6 overflow-y-auto z-30">
+              <h2 className="text-xl font-bold mb-4 text-center mt-2 text-gray-900">อัปโหลดวิดีโอจากเครื่อง</h2>
               <form onSubmit={handleAddVideo} className="flex flex-col gap-3 pb-12">
                 <div>
-                  <label className="text-xs text-zinc-400 mb-1 block">เลือกไฟล์วิดีโอ (MP4)</label>
-                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-zinc-700 border-dashed rounded-xl cursor-pointer bg-zinc-800/50 hover:bg-zinc-800 transition-colors">
+                  <label className="text-xs text-gray-600 mb-1 block font-semibold">เลือกไฟล์วิดีโอ (MP4)</label>
+                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-xl cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
                     <div className="flex flex-col items-center pt-5 pb-6">
-                      <Upload className="w-8 h-8 text-zinc-400 mb-2" />
-                      <p className="text-xs text-zinc-300 font-medium">คลิกเพื่อเลือกไฟล์วิดีโอ</p>
-                      <p className="text-[10px] text-zinc-500 mt-0.5">รองรับไฟล์ MP4 จากคอมหรือมือถือ</p>
+                      <Upload className="w-8 h-8 text-gray-500 mb-2" />
+                      <p className="text-xs text-gray-700 font-medium">คลิกเพื่อเลือกไฟล์วิดีโอ</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">รองรับไฟล์ MP4 จากคอมหรือมือถือ</p>
                     </div>
                     <input type="file" accept="video/*" onChange={handleFileChange} className="hidden" />
                   </label>
                 </div>
 
                 {videoPreviewUrl && (
-                  <div className="w-full h-32 bg-black rounded-lg overflow-hidden border border-zinc-700">
+                  <div className="w-full h-32 bg-black rounded-lg overflow-hidden border border-gray-300">
                     <video src={videoPreviewUrl} className="w-full h-full object-contain" controls />
                   </div>
                 )}
 
                 <div>
-                  <label className="text-xs text-zinc-400 mb-1 block">คำอธิบาย (Caption)</label>
+                  <label className="text-xs text-gray-600 mb-1 block font-semibold">คำอธิบาย (Caption)</label>
                   <textarea 
                     placeholder="เขียนแคปชันของคุณที่นี่..." 
                     value={newCaption}
                     onChange={(e) => setNewCaption(e.target.value)}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-red-500 h-16 resize-none"
+                    className="w-full bg-gray-50 border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 focus:outline-none focus:border-red-500 h-16 resize-none"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-zinc-400 mb-1 block">ชื่อเพลง / เสียงประกอบ</label>
+                  <label className="text-xs text-gray-600 mb-1 block font-semibold">ชื่อเพลง / เสียงประกอบ</label>
                   <input 
                     type="text" 
                     placeholder="เสียงต้นฉบับ - Creator" 
                     value={newSong}
                     onChange={(e) => setNewSong(e.target.value)}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-red-500"
+                    className="w-full bg-gray-50 border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 focus:outline-none focus:border-red-500"
                   />
                 </div>
 
-                <div className="bg-zinc-800/50 p-3 rounded-xl border border-zinc-700">
+                <div className="bg-gray-50 p-3 rounded-xl border border-gray-300">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold flex items-center gap-1.5">
-                      <ShoppingBag className="w-3.5 h-3.5 text-red-500" /> พ่วงตะกร้าสินค้า
+                    <span className="text-xs font-bold flex items-center gap-1.5 text-gray-800">
+                      <ShoppingBag className="w-3.5 h-3.5 text-red-600" /> พ่วงตะกร้าสินค้า
                     </span>
                     <input 
                       type="checkbox" 
@@ -352,14 +365,14 @@ export default function App() {
                         placeholder="ชื่อสินค้า เช่น เสื้อยืดสุดเท่" 
                         value={prodName}
                         onChange={(e) => setProdName(e.target.value)}
-                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-2 text-xs text-white"
+                        className="w-full bg-white border border-gray-300 rounded-lg p-2 text-xs text-gray-900"
                       />
                       <input 
                         type="text" 
                         placeholder="ราคา เช่น ฿290" 
                         value={prodPrice}
                         onChange={(e) => setProdPrice(e.target.value)}
-                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-2 text-xs text-white"
+                        className="w-full bg-white border border-gray-300 rounded-lg p-2 text-xs text-gray-900"
                       />
                     </div>
                   )}
@@ -372,29 +385,29 @@ export default function App() {
             </div>
           )}
 
-          {/* แท็บหน้าร้านค้าและสินค้า */}
+          {/* แท็บหน้าร้านค้าและสินค้า (พื้นหลังสีขาว สบายตา) */}
           {activeTab === 'shop' && (
-            <div className="h-full w-full bg-zinc-900 text-white flex flex-col p-4 overflow-y-auto">
-              <h2 className="text-lg font-bold mb-3 text-center mt-2 flex items-center justify-center gap-2">
-                <ShoppingBag className="w-5 h-5 text-red-500" /> ตะกร้าสินค้าแนะนำ
+            <div className="absolute inset-0 bg-white text-gray-900 flex flex-col p-4 overflow-y-auto z-30">
+              <h2 className="text-lg font-bold mb-3 text-center mt-2 flex items-center justify-center gap-2 text-gray-900">
+                <ShoppingBag className="w-5 h-5 text-red-600" /> ตะกร้าสินค้าแนะนำ
               </h2>
               <div className="grid grid-cols-2 gap-3 pb-12">
                 {products.map((item) => (
-                  <div key={item.id} className="bg-zinc-800 rounded-xl overflow-hidden border border-zinc-700 flex flex-col justify-between">
+                  <div key={item.id} className="bg-gray-50 rounded-xl overflow-hidden border border-gray-200 shadow-sm flex flex-col justify-between">
                     <img src={item.image} alt={item.name} className="w-full h-28 object-cover" />
                     <div className="p-2.5 flex flex-col flex-1 justify-between">
                       <div>
-                        <h3 className="font-semibold text-xs line-clamp-2">{item.name}</h3>
-                        <p className="text-[10px] text-zinc-400 mt-0.5">{item.sales}</p>
+                        <h3 className="font-bold text-xs line-clamp-2 text-gray-900">{item.name}</h3>
+                        <p className="text-[10px] text-gray-500 mt-0.5">{item.sales}</p>
                       </div>
-                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-zinc-700/50">
-                        <span className="text-red-500 font-bold text-sm">{item.price}</span>
+                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-200">
+                        <span className="text-red-600 font-bold text-sm">{item.price}</span>
                         <button 
                           onClick={() => {
                             setSelectedProduct({ name: item.name, price: item.price });
                             setShowCartModal(true);
                           }}
-                          className="bg-red-600 hover:bg-red-700 text-white text-[10px] px-2.5 py-1 rounded-md font-semibold"
+                          className="bg-red-600 hover:bg-red-700 text-white text-[10px] px-2.5 py-1 rounded-md font-bold shadow"
                         >
                           ซื้อเลย
                         </button>
@@ -406,55 +419,55 @@ export default function App() {
             </div>
           )}
 
-          {/* แท็บหน้าบริการ */}
+          {/* แท็บหน้าบริการ (พื้นหลังสีขาว) */}
           {activeTab === 'services' && (
-            <div className="h-full w-full bg-zinc-900 text-white flex flex-col p-6 overflow-y-auto">
-              <h2 className="text-xl font-bold mb-4 text-center mt-2">ศูนย์รวมบริการและเมนู</h2>
+            <div className="absolute inset-0 bg-white text-gray-900 flex flex-col p-6 overflow-y-auto z-30">
+              <h2 className="text-xl font-bold mb-4 text-center mt-2 text-gray-900">ศูนย์รวมบริการและเมนู</h2>
               <div className="grid grid-cols-2 gap-3 pb-12">
-                <button onClick={() => setActiveTab('shop')} className="bg-zinc-800 p-4 rounded-xl border border-zinc-700 flex flex-col items-center text-center hover:bg-zinc-750 transition-colors">
-                  <ShoppingBag className="w-8 h-8 text-red-500 mb-2" />
-                  <h3 className="font-bold text-sm">ร้านค้าตะกร้า</h3>
-                  <p className="text-xs text-zinc-400 mt-1">เลือกซื้อสินค้าช้อปปิ้ง</p>
+                <button onClick={() => setActiveTab('shop')} className="bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center text-center hover:bg-gray-100 transition-colors">
+                  <ShoppingBag className="w-8 h-8 text-red-600 mb-2" />
+                  <h3 className="font-bold text-sm text-gray-900">ร้านค้าตะกร้า</h3>
+                  <p className="text-xs text-gray-500 mt-1">เลือกซื้อสินค้าช้อปปิ้ง</p>
                 </button>
-                <button onClick={() => setActiveTab('home')} className="bg-zinc-800 p-4 rounded-xl border border-zinc-700 flex flex-col items-center text-center hover:bg-zinc-750 transition-colors">
-                  <Compass className="w-8 h-8 text-blue-500 mb-2" />
-                  <h3 className="font-bold text-sm">สำรวจฟีด</h3>
-                  <p className="text-xs text-zinc-400 mt-1">ดูวิดีโอทั้งหมด</p>
+                <button onClick={() => setActiveTab('home')} className="bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center text-center hover:bg-gray-100 transition-colors">
+                  <Compass className="w-8 h-8 text-blue-600 mb-2" />
+                  <h3 className="font-bold text-sm text-gray-900">สำรวจฟีด</h3>
+                  <p className="text-xs text-gray-500 mt-1">ดูวิดีโอทั้งหมด</p>
                 </button>
               </div>
             </div>
           )}
 
-          {/* แท็บโปรไฟล์ */}
+          {/* แท็บโปรไฟล์ (พื้นหลังสีขาว) */}
           {activeTab === 'profile' && (
-            <div className="h-full w-full bg-zinc-900 text-white flex flex-col items-center pt-12 px-6 overflow-y-auto">
-              <div className="w-20 h-20 bg-gradient-to-tr from-yellow-400 to-red-500 rounded-full flex items-center justify-center text-2xl font-bold mb-3 shadow-lg">
+            <div className="absolute inset-0 bg-white text-gray-900 flex flex-col items-center pt-12 px-6 overflow-y-auto z-30">
+              <div className="w-20 h-20 bg-gradient-to-tr from-yellow-400 to-red-500 rounded-full flex items-center justify-center text-2xl font-bold text-white mb-3 shadow-lg">
                 TH
               </div>
-              <h2 className="text-lg font-bold">@my_profile</h2>
-              <p className="text-xs text-zinc-400 mt-1">ผู้สร้างคอนเทนต์วิดีโอสั้นตัวยง</p>
+              <h2 className="text-lg font-bold text-gray-900">@my_profile</h2>
+              <p className="text-xs text-gray-500 mt-1">ผู้สร้างคอนเทนต์วิดีโอสั้นตัวยง</p>
               
               <div className="flex gap-6 mt-6 text-center">
                 <div>
-                  <span className="block font-bold text-base">{videos.length}</span>
-                  <span className="text-xs text-zinc-400">โพสต์</span>
+                  <span className="block font-bold text-base text-gray-900">{videos.length}</span>
+                  <span className="text-xs text-gray-500">โพสต์</span>
                 </div>
                 <div>
-                  <span className="block font-bold text-base">1.5M</span>
-                  <span className="text-xs text-zinc-400">ผู้ติดตาม</span>
+                  <span className="block font-bold text-base text-gray-900">1.5M</span>
+                  <span className="text-xs text-gray-500">ผู้ติดตาม</span>
                 </div>
                 <div>
-                  <span className="block font-bold text-base">3.2M</span>
-                  <span className="text-xs text-zinc-400">ถูกใจ</span>
+                  <span className="block font-bold text-base text-gray-900">3.2M</span>
+                  <span className="text-xs text-gray-500">ถูกใจ</span>
                 </div>
               </div>
 
-              <div className="w-full mt-8 border-t border-zinc-800 pt-4 pb-12">
-                <h3 className="text-xs font-semibold text-zinc-400 mb-3">วิดีโอทั้งหมดของคุณ ({videos.length})</h3>
+              <div className="w-full mt-8 border-t border-gray-200 pt-4 pb-12">
+                <h3 className="text-xs font-bold text-gray-700 mb-3">วิดีโอทั้งหมดของคุณ ({videos.length})</h3>
                 <div className="grid grid-cols-3 gap-1">
                   {videos.map((v) => (
-                    <div key={v.id} className="aspect-[9/16] bg-zinc-800 relative overflow-hidden rounded">
-                      <video src={v.url} className="w-full h-full object-cover" />
+                    <div key={v.id} className="aspect-[9/16] bg-gray-200 relative overflow-hidden rounded">
+                      <video src={v.url} className="w-full h-full object-cover pointer-events-none" muted />
                     </div>
                   ))}
                 </div>
@@ -464,37 +477,37 @@ export default function App() {
 
           {/* Modal คอมเมนต์ */}
           {showComments && (
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex flex-col justify-end">
-              <div className="bg-zinc-900 w-full h-[60%] rounded-t-2xl flex flex-col text-white border-t border-zinc-800">
-                <div className="flex justify-between items-center p-4 border-b border-zinc-800">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex flex-col justify-end">
+              <div className="bg-white w-full h-[60%] rounded-t-2xl flex flex-col text-gray-900 border-t border-gray-200 shadow-2xl">
+                <div className="flex justify-between items-center p-4 border-b border-gray-200">
                   <span className="text-sm font-bold">ความคิดเห็น ({videos[currentIndex]?.comments || 0})</span>
-                  <button onClick={() => setShowComments(false)} className="text-zinc-400 font-bold px-2">✕</button>
+                  <button onClick={() => setShowComments(false)} className="text-gray-500 font-bold px-2">✕</button>
                 </div>
                 
                 <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
                   {videos[currentIndex]?.commentList?.map((c) => (
                     <div key={c.id} className="flex gap-3">
-                      <div className="w-8 h-8 bg-zinc-700 rounded-full flex items-center justify-center text-xs font-bold shrink-0">
+                      <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-xs font-bold text-gray-700 shrink-0">
                         {c.username.substring(1, 3).toUpperCase()}
                       </div>
                       <div>
-                        <span className="text-xs text-zinc-400 font-semibold">{c.username}</span>
-                        <p className="text-sm mt-0.5">{c.text}</p>
-                        <span className="text-[10px] text-zinc-500 mt-1 block">{c.time}</span>
+                        <span className="text-xs text-gray-500 font-semibold">{c.username}</span>
+                        <p className="text-sm mt-0.5 text-gray-900">{c.text}</p>
+                        <span className="text-[10px] text-gray-400 mt-1 block">{c.time}</span>
                       </div>
                     </div>
                   ))}
                 </div>
 
-                <form onSubmit={handleAddComment} className="p-3 bg-zinc-950 border-t border-zinc-800 flex gap-2">
+                <form onSubmit={handleAddComment} className="p-3 bg-gray-50 border-t border-gray-200 flex gap-2">
                   <input 
                     type="text" 
                     placeholder="แสดงความคิดเห็น..." 
                     value={newCommentText}
                     onChange={(e) => setNewCommentText(e.target.value)}
-                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-full px-4 py-2 text-sm text-white focus:outline-none focus:border-red-500"
+                    className="flex-1 bg-white border border-gray-300 rounded-full px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-red-500"
                   />
-                  <button type="submit" className="bg-red-600 text-white p-2 rounded-full hover:bg-red-700">
+                  <button type="submit" className="bg-red-600 text-white p-2 rounded-full hover:bg-red-700 shadow">
                     <Send className="w-4 h-4" />
                   </button>
                 </form>
@@ -504,21 +517,21 @@ export default function App() {
 
           {/* Modal ตะกร้าสินค้า */}
           {showCartModal && selectedProduct && (
-            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-zinc-900 border border-zinc-800 w-full max-w-xs rounded-2xl p-5 text-white shadow-2xl">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white border border-gray-200 w-full max-w-xs rounded-2xl p-5 text-gray-900 shadow-2xl">
                 <div className="flex justify-between items-center mb-4">
-                  <span className="text-sm font-bold flex items-center gap-1.5 text-red-500">
+                  <span className="text-sm font-bold flex items-center gap-1.5 text-red-600">
                     <ShoppingBag className="w-4 h-4" /> ตะกร้าสินค้าช้อปปิ้ง
                   </span>
-                  <button onClick={() => setShowCartModal(false)} className="text-zinc-400 font-bold">✕</button>
+                  <button onClick={() => setShowCartModal(false)} className="text-gray-400 font-bold">✕</button>
                 </div>
-                <div className="bg-zinc-800 p-3 rounded-xl mb-4">
-                  <p className="font-semibold text-sm">{selectedProduct.name}</p>
-                  <p className="text-red-500 font-bold text-base mt-1">{selectedProduct.price}</p>
+                <div className="bg-gray-50 p-3 rounded-xl mb-4 border border-gray-200">
+                  <p className="font-bold text-sm text-gray-900">{selectedProduct.name}</p>
+                  <p className="text-red-600 font-bold text-base mt-1">{selectedProduct.price}</p>
                 </div>
                 <button 
                   onClick={() => { alert('สั่งซื้อสินค้าสำเร็จ!'); setShowCartModal(false); }}
-                  className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded-xl text-sm transition-colors"
+                  className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded-xl text-sm transition-colors shadow"
                 >
                   ชำระเงินทันที
                 </button>
@@ -528,28 +541,28 @@ export default function App() {
 
         </div>
 
-        {/* แถบเมนูด้านล่าง */}
-        <div className="h-14 bg-black border-t border-zinc-900 flex items-center justify-around px-2 z-20 shrink-0">
-          <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'home' ? 'text-white' : 'text-zinc-500'}`}>
+        {/* แถบเมนูด้านล่าง (พื้นหลังสีขาว สะอาดตา) */}
+        <div className="h-14 bg-white border-t border-gray-200 flex items-center justify-around px-2 z-40 shrink-0 shadow-lg">
+          <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'home' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
             <Home className="w-5 h-5" />
             <span className="text-[10px] mt-0.5">หน้าหลัก</span>
           </button>
 
-          <button onClick={() => setActiveTab('shop')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'shop' ? 'text-white' : 'text-zinc-500'}`}>
+          <button onClick={() => setActiveTab('shop')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'shop' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
             <Tag className="w-5 h-5" />
             <span className="text-[10px] mt-0.5">ตะกร้า</span>
           </button>
 
-          <button onClick={() => setActiveTab('upload')} className="flex items-center justify-center w-10 h-7 bg-white rounded-md text-black hover:bg-zinc-200 transition-colors shadow">
-            <PlusSquare className="w-5 h-5 fill-white text-black" />
+          <button onClick={() => setActiveTab('upload')} className="flex items-center justify-center w-10 h-7 bg-red-600 rounded-md text-white hover:bg-red-700 transition-colors shadow">
+            <PlusSquare className="w-5 h-5" />
           </button>
 
-          <button onClick={() => setActiveTab('services')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'services' ? 'text-white' : 'text-zinc-500'}`}>
+          <button onClick={() => setActiveTab('services')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'services' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
             <Compass className="w-5 h-5" />
             <span className="text-[10px] mt-0.5">บริการ</span>
           </button>
 
-          <button onClick={() => setActiveTab('profile')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'profile' ? 'text-white' : 'text-zinc-500'}`}>
+          <button onClick={() => setActiveTab('profile')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'profile' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
             <User className="w-5 h-5" />
             <span className="text-[10px] mt-0.5">ฉัน</span>
           </button>
