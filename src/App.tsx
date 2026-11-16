@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Home,
   ShoppingBag,
@@ -27,6 +27,7 @@ import { VideoItem, ProductItem, UserProfile, CartItem } from './types';
 import { ProfileView } from './components/ProfileView';
 
 export function App() {
+  // โหลดข้อมูลคลิปจาก localStorage ป้องกันคลิปหายและไม่ดึงคลิปกระต่ายมาทับ
   const [videos, setVideos] = useState<VideoItem[]>(() => {
     try {
       const saved = localStorage.getItem('toktak_my_videos');
@@ -39,6 +40,7 @@ export function App() {
     } catch (e) {
       console.error('Error loading videos', e);
     }
+    // ค่าเริ่มต้นถ้ายังไม่มีคลิป
     return [
       {
         id: 'default-1',
@@ -62,7 +64,9 @@ export function App() {
       if (savedUser) {
         return JSON.parse(savedUser);
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error('Error loading user', e);
+    }
     return {
       email: '***************@*****.***',
       name: 'Golden River City',
@@ -81,7 +85,6 @@ export function App() {
   const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [myProducts, setMyProducts] = useState<ProductItem[]>([
@@ -94,7 +97,7 @@ export function App() {
     }
   ]);
 
-  // บันทึกข้อมูลลง localStorage ทันทีที่มีการเปลี่ยนแปลง
+  // บันทึกข้อมูลลง localStorage ทุกครั้งที่มีการเปลี่ยนแปลง
   useEffect(() => {
     try {
       localStorage.setItem('toktak_my_videos', JSON.stringify(videos));
@@ -103,25 +106,23 @@ export function App() {
     }
   }, [videos]);
 
-  const handleAddVideo = (newVideo: VideoItem) => {
-    setVideos((prev) => {
-      const updated = [newVideo, ...prev];
+  useEffect(() => {
+    if (currentUser) {
       try {
-        localStorage.setItem('toktak_my_videos', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+        localStorage.setItem('toktak_current_user', JSON.stringify(currentUser));
+      } catch (e) {
+        console.error('Error saving user', e);
+      }
+    }
+  }, [currentUser]);
+
+  const handleAddVideo = (newVideo: VideoItem) => {
+    setVideos((prev) => [newVideo, ...prev]);
     setActiveTab('profile');
   };
 
   const handleDeleteVideo = (videoId: string) => {
-    setVideos((prev) => {
-      const updated = prev.filter((v) => v.id !== videoId);
-      try {
-        localStorage.setItem('toktak_my_videos', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    setVideos((prev) => prev.filter((v) => v.id !== videoId));
   };
 
   const handleToggleVideoPrivacy = (videoId: string) => {
@@ -130,42 +131,23 @@ export function App() {
     );
   };
 
-  const togglePlay = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-        setIsPlaying(false);
-      } else {
-        videoRef.current.play().catch(() => {});
-        setIsPlaying(true);
-      }
-    }
-  };
-
   return (
     <div className="w-full h-screen bg-black text-white flex flex-col justify-between overflow-hidden select-none">
+      {/* ส่วนแสดงผลหลักตามแท็บ */}
       <div className="flex-1 relative overflow-hidden flex flex-col justify-center items-center">
         {activeTab === 'home' && (
-          <div className="w-full h-full relative flex items-center justify-center bg-slate-900" onClick={togglePlay}>
+          <div className="w-full h-full relative flex items-center justify-center bg-slate-900">
             {videos.length > 0 && videos[currentVideoIndex] ? (
               <>
                 <video
-                  ref={videoRef}
                   src={videos[currentVideoIndex].videoUrl}
                   poster={videos[currentVideoIndex].posterUrl}
                   autoPlay
                   playsInline
                   loop
-                  muted
+                  muted={isMuted}
                   className="w-full h-full object-cover"
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
                 />
-                {!isPlaying && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
-                    <Play className="w-16 h-16 text-white opacity-80 fill-white" />
-                  </div>
-                )}
                 <div className="absolute bottom-16 left-4 right-16 z-20 text-white drop-shadow-md">
                   <h3 className="text-sm font-bold">{videos[currentVideoIndex].creatorName}</h3>
                   <p className="text-xs mt-1 line-clamp-2">{videos[currentVideoIndex].caption}</p>
@@ -256,6 +238,7 @@ export function App() {
         )}
       </div>
 
+      {/* แถบเมนูด้านล่าง */}
       <div className="h-14 bg-white border-t border-slate-200 flex items-center justify-around text-slate-600 px-2 z-30 shrink-0">
         <button
           onClick={() => setActiveTab('home')}
