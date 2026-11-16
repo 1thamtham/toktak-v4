@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Heart, MessageCircle, Share2, Music, Home, Compass, PlusSquare, Inbox, User, Play, ShoppingBag, Send, Upload, Tag } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Music, Home, Compass, PlusSquare, Inbox, User, Play, ShoppingBag, Send, Upload, Store } from 'lucide-react';
 
 interface CommentItem {
   id: string;
@@ -72,7 +72,7 @@ const INITIAL_PRODUCTS: ProductItem[] = [
 export default function App() {
   const [videos, setVideos] = useState<VideoItem[]>(() => {
     try {
-      const saved = localStorage.getItem('toktak_light_v1');
+      const saved = localStorage.getItem('toktak_light_v2');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -93,7 +93,7 @@ export default function App() {
   const [showCartModal, setShowCartModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<{name: string, price: string} | null>(null);
 
-  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string>('');
+  const [videoFileUrl, setVideoFileUrl] = useState<string>('');
   const [newCaption, setNewCaption] = useState('');
   const [newSong, setNewSong] = useState('');
   const [hasProd, setHasProd] = useState(false);
@@ -104,12 +104,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      // เซฟเฉพาะข้อมูล Text และ URL ปกติเพื่อไม่ให้หน่วยความจำเต็ม
-      const lightVideos = videos.map(v => ({
-        ...v,
-        url: v.url.startsWith('blob:') || v.url.startsWith('data:') ? 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4' : v.url
-      }));
-      localStorage.setItem('toktak_light_v1', JSON.stringify(lightVideos));
+      localStorage.setItem('toktak_light_v2', JSON.stringify(videos));
     } catch (e) {
       console.error('Error saving localStorage', e);
     }
@@ -187,20 +182,20 @@ export default function App() {
     const file = e.target.files?.[0];
     if (file) {
       const fileUrl = URL.createObjectURL(file);
-      setVideoPreviewUrl(fileUrl);
+      setVideoFileUrl(fileUrl);
     }
   };
 
   const handleAddVideo = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!videoPreviewUrl) {
+    if (!videoFileUrl) {
       alert('กรุณาเลือกไฟล์วิดีโอก่อนครับ');
       return;
     }
 
     const newItem: VideoItem = {
       id: Date.now().toString(),
-      url: 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4',
+      url: videoFileUrl,
       username: '@my_profile',
       caption: newCaption.trim() || 'วิดีโอใหม่ของฉัน 🚀',
       song: newSong.trim() || 'เสียงต้นฉบับ - Creator',
@@ -214,7 +209,7 @@ export default function App() {
     };
 
     setVideos([newItem, ...videos]);
-    setVideoPreviewUrl('');
+    setVideoFileUrl('');
     setNewCaption('');
     setNewSong('');
     setHasProd(false);
@@ -311,18 +306,25 @@ export default function App() {
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block font-semibold">เลือกไฟล์วิดีโอ (MP4)</label>
                   <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-xl cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
-                    <div className="flex flex-col items-center pt-5 pb-6">
-                      <Upload className="w-8 h-8 text-gray-500 mb-2" />
-                      <p className="text-xs text-gray-700 font-medium">คลิกเพื่อเลือกไฟล์วิดีโอ</p>
-                      <p className="text-[10px] text-gray-500 mt-0.5">รองรับไฟล์ MP4 จากคอมหรือมือถือ</p>
-                    </div>
+                    {videoFileUrl ? (
+                      <div className="text-center p-2">
+                        <p className="text-xs font-bold text-green-600">✓ เลือกไฟล์วิดีโอเรียบร้อย</p>
+                        <p className="text-[10px] text-gray-500 mt-1">คลิกเพื่อเปลี่ยนไฟล์ใหม่</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center pt-5 pb-6">
+                        <Upload className="w-8 h-8 text-gray-500 mb-2" />
+                        <p className="text-xs text-gray-700 font-medium">คลิกเพื่อเลือกไฟล์วิดีโอ</p>
+                        <p className="text-[10px] text-gray-500 mt-0.5">รองรับไฟล์ MP4 จากคอมหรือมือถือ</p>
+                      </div>
+                    )}
                     <input type="file" accept="video/*" onChange={handleFileChange} className="hidden" />
                   </label>
                 </div>
 
-                {videoPreviewUrl && (
+                {videoFileUrl && (
                   <div className="w-full h-32 bg-black rounded-lg overflow-hidden border border-gray-300">
-                    <video src={videoPreviewUrl} className="w-full h-full object-contain" controls />
+                    <video src={videoFileUrl} className="w-full h-full object-contain" controls />
                   </div>
                 )}
 
@@ -349,7 +351,7 @@ export default function App() {
                 <div className="bg-gray-50 p-3 rounded-xl border border-gray-300">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold flex items-center gap-1.5 text-gray-800">
-                      <ShoppingBag className="w-3.5 h-3.5 text-red-600" /> พ่วงตะกร้าสินค้า
+                      <ShoppingBag className="w-3.5 h-3.5 text-red-600" /> พ่วงสินค้าในร้านค้า
                     </span>
                     <input 
                       type="checkbox" 
@@ -385,11 +387,11 @@ export default function App() {
             </div>
           )}
 
-          {/* แท็บหน้าร้านค้าและสินค้า (พื้นหลังสีขาว สบายตา) */}
+          {/* แท็บหน้าร้านค้าและสินค้า (เปลี่ยนจากคำว่าตะกร้าเป็นร้านค้า) */}
           {activeTab === 'shop' && (
             <div className="absolute inset-0 bg-white text-gray-900 flex flex-col p-4 overflow-y-auto z-30">
               <h2 className="text-lg font-bold mb-3 text-center mt-2 flex items-center justify-center gap-2 text-gray-900">
-                <ShoppingBag className="w-5 h-5 text-red-600" /> ตะกร้าสินค้าแนะนำ
+                <Store className="w-5 h-5 text-red-600" /> ร้านค้าแนะนำ
               </h2>
               <div className="grid grid-cols-2 gap-3 pb-12">
                 {products.map((item) => (
@@ -409,7 +411,7 @@ export default function App() {
                           }}
                           className="bg-red-600 hover:bg-red-700 text-white text-[10px] px-2.5 py-1 rounded-md font-bold shadow"
                         >
-                          ซื้อเลย
+                          ดูสินค้า
                         </button>
                       </div>
                     </div>
@@ -419,15 +421,15 @@ export default function App() {
             </div>
           )}
 
-          {/* แท็บหน้าบริการ (พื้นหลังสีขาว) */}
+          {/* แท็บหน้าบริการ */}
           {activeTab === 'services' && (
             <div className="absolute inset-0 bg-white text-gray-900 flex flex-col p-6 overflow-y-auto z-30">
               <h2 className="text-xl font-bold mb-4 text-center mt-2 text-gray-900">ศูนย์รวมบริการและเมนู</h2>
               <div className="grid grid-cols-2 gap-3 pb-12">
                 <button onClick={() => setActiveTab('shop')} className="bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center text-center hover:bg-gray-100 transition-colors">
-                  <ShoppingBag className="w-8 h-8 text-red-600 mb-2" />
-                  <h3 className="font-bold text-sm text-gray-900">ร้านค้าตะกร้า</h3>
-                  <p className="text-xs text-gray-500 mt-1">เลือกซื้อสินค้าช้อปปิ้ง</p>
+                  <Store className="w-8 h-8 text-red-600 mb-2" />
+                  <h3 className="font-bold text-sm text-gray-900">ร้านค้าแนะนำ</h3>
+                  <p className="text-xs text-gray-500 mt-1">เลือกชมสินค้าทั้งหมด</p>
                 </button>
                 <button onClick={() => setActiveTab('home')} className="bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center text-center hover:bg-gray-100 transition-colors">
                   <Compass className="w-8 h-8 text-blue-600 mb-2" />
@@ -438,7 +440,7 @@ export default function App() {
             </div>
           )}
 
-          {/* แท็บโปรไฟล์ (พื้นหลังสีขาว) */}
+          {/* แท็บโปรไฟล์ */}
           {activeTab === 'profile' && (
             <div className="absolute inset-0 bg-white text-gray-900 flex flex-col items-center pt-12 px-6 overflow-y-auto z-30">
               <div className="w-20 h-20 bg-gradient-to-tr from-yellow-400 to-red-500 rounded-full flex items-center justify-center text-2xl font-bold text-white mb-3 shadow-lg">
@@ -515,13 +517,13 @@ export default function App() {
             </div>
           )}
 
-          {/* Modal ตะกร้าสินค้า */}
+          {/* Modal ร้านค้าสินค้า */}
           {showCartModal && selectedProduct && (
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-white border border-gray-200 w-full max-w-xs rounded-2xl p-5 text-gray-900 shadow-2xl">
                 <div className="flex justify-between items-center mb-4">
                   <span className="text-sm font-bold flex items-center gap-1.5 text-red-600">
-                    <ShoppingBag className="w-4 h-4" /> ตะกร้าสินค้าช้อปปิ้ง
+                    <Store className="w-4 h-4" /> รายละเอียดสินค้า
                   </span>
                   <button onClick={() => setShowCartModal(false)} className="text-gray-400 font-bold">✕</button>
                 </div>
@@ -533,7 +535,7 @@ export default function App() {
                   onClick={() => { alert('สั่งซื้อสินค้าสำเร็จ!'); setShowCartModal(false); }}
                   className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded-xl text-sm transition-colors shadow"
                 >
-                  ชำระเงินทันที
+                  ยืนยันการสั่งซื้อ
                 </button>
               </div>
             </div>
@@ -541,7 +543,7 @@ export default function App() {
 
         </div>
 
-        {/* แถบเมนูด้านล่าง (พื้นหลังสีขาว สะอาดตา) */}
+        {/* แถบเมนูด้านล่าง (เปลี่ยนคำว่าตะกร้าเป็นร้านค้า) */}
         <div className="h-14 bg-white border-t border-gray-200 flex items-center justify-around px-2 z-40 shrink-0 shadow-lg">
           <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'home' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
             <Home className="w-5 h-5" />
@@ -549,8 +551,8 @@ export default function App() {
           </button>
 
           <button onClick={() => setActiveTab('shop')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'shop' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
-            <Tag className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">ตะกร้า</span>
+            <Store className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">ร้านค้า</span>
           </button>
 
           <button onClick={() => setActiveTab('upload')} className="flex items-center justify-center w-10 h-7 bg-red-600 rounded-md text-white hover:bg-red-700 transition-colors shadow">
