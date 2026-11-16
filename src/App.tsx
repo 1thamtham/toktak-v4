@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Heart, MessageCircle, Share2, Music, Home, Compass, PlusSquare, User, Play, ShoppingBag, Send, Store, Bookmark, MoreVertical } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Music, Home, Compass, PlusSquare, User, Play, ShoppingBag, Send, Upload, Store, Bookmark, MoreVertical } from 'lucide-react';
 
 interface CommentItem {
   id: string;
@@ -79,7 +79,7 @@ const INITIAL_PRODUCTS: ProductItem[] = [
 export default function App() {
   const [videos, setVideos] = useState<VideoItem[]>(() => {
     try {
-      const saved = localStorage.getItem('toktak_line_fix_v10');
+      const saved = localStorage.getItem('toktak_upload_fix_v11');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -101,7 +101,8 @@ export default function App() {
   const [selectedProduct, setSelectedProduct] = useState<{name: string, price: string} | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
 
-  const [videoUrlInput, setVideoUrlInput] = useState('');
+  // ฟอร์มสำหรับเลือกไฟล์จากเครื่อง
+  const [pendingVideoUrl, setPendingVideoUrl] = useState<string>('');
   const [newCaption, setNewCaption] = useState('');
   const [newSong, setNewSong] = useState('');
   const [hasProd, setHasProd] = useState(false);
@@ -112,7 +113,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('toktak_line_fix_v10', JSON.stringify(videos));
+      localStorage.setItem('toktak_upload_fix_v11', JSON.stringify(videos));
     } catch (e) {
       console.error('Error saving localStorage', e);
     }
@@ -197,13 +198,25 @@ export default function App() {
     setNewCommentText('');
   };
 
+  // ฟังก์ชันเลือกไฟล์วิดีโอจากเครื่อง
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const fileUrl = URL.createObjectURL(file);
+      setPendingVideoUrl(fileUrl);
+    }
+  };
+
   const handleAddVideo = (e: React.FormEvent) => {
     e.preventDefault();
-    const finalUrl = videoUrlInput.trim() || 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4';
+    if (!pendingVideoUrl) {
+      alert('กรุณาเลือกไฟล์วิดีโอก่อนกดโพสต์ครับ!');
+      return;
+    }
 
     const newItem: VideoItem = {
       id: Date.now().toString(),
-      url: finalUrl,
+      url: pendingVideoUrl,
       username: '@my_profile',
       userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=60',
       caption: newCaption.trim() || 'วิดีโอใหม่ของฉัน 🚀',
@@ -219,7 +232,7 @@ export default function App() {
     };
 
     setVideos([newItem, ...videos]);
-    setVideoUrlInput('');
+    setPendingVideoUrl('');
     setNewCaption('');
     setNewSong('');
     setHasProd(false);
@@ -332,22 +345,28 @@ export default function App() {
             </div>
           )}
 
-          {/* แท็บโพสต์วิดีโอ */}
+          {/* แท็บอัปโหลดวิดีโอจากเครื่อง */}
           {activeTab === 'upload' && (
             <div className="absolute inset-0 bg-white text-gray-900 flex flex-col p-6 overflow-y-auto z-30">
-              <h2 className="text-xl font-bold mb-4 text-center mt-2 text-gray-900">โพสต์วิดีโอใหม่</h2>
+              <h2 className="text-xl font-bold mb-4 text-center mt-2 text-gray-900">อัปโหลดวิดีโอจากเครื่อง</h2>
               <form onSubmit={handleAddVideo} className="flex flex-col gap-3 pb-12">
                 <div>
-                  <label className="text-xs text-gray-600 mb-1 block font-semibold">ลิงก์วิดีโอ (MP4 URL)</label>
-                  <input 
-                    type="url" 
-                    placeholder="https://.../video.mp4 (หรือเว้นว่างเพื่อใช้คลิปตัวอย่าง)" 
-                    value={videoUrlInput}
-                    onChange={(e) => setVideoUrlInput(e.target.value)}
-                    className="w-full bg-gray-50 border border-gray-300 rounded-lg p-3 text-xs text-gray-900 focus:outline-none focus:border-red-500"
-                  />
-                  <p className="text-[10px] text-gray-500 mt-1">*เพื่อให้เปิดดูใน LINE ได้อย่างเสถียร แนะนำใส่ลิงก์ MP4 ออนไลน์</p>
+                  <label className="text-xs text-gray-600 mb-1 block font-semibold">เลือกไฟล์วิดีโอ (MP4)</label>
+                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-red-400 border-dashed rounded-xl cursor-pointer bg-red-50 hover:bg-red-100 transition-colors">
+                    <div className="flex flex-col items-center pt-5 pb-6 px-2 text-center">
+                      <Upload className="w-8 h-8 text-red-600 mb-2" />
+                      <p className="text-xs text-gray-800 font-bold">{pendingVideoUrl ? '✓ เลือกไฟล์วิดีโอสำเร็จแล้ว' : 'คลิกเพื่อเลือกไฟล์วิดีโอจากเครื่อง'}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">รองรับไฟล์ MP4 เล่นได้ทันที</p>
+                    </div>
+                    <input type="file" accept="video/*" onChange={handleFileChange} className="hidden" />
+                  </label>
                 </div>
+
+                {pendingVideoUrl && (
+                  <div className="w-full h-32 bg-black rounded-lg overflow-hidden border border-gray-300">
+                    <video src={pendingVideoUrl} className="w-full h-full object-contain" controls />
+                  </div>
+                )}
 
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block font-semibold">คำอธิบาย (Caption)</label>
