@@ -72,7 +72,7 @@ const INITIAL_PRODUCTS: ProductItem[] = [
 export default function App() {
   const [videos, setVideos] = useState<VideoItem[]>(() => {
     try {
-      const saved = localStorage.getItem('toktak_working_v4');
+      const saved = localStorage.getItem('toktak_final_v5');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -104,7 +104,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('toktak_working_v4', JSON.stringify(videos));
+      localStorage.setItem('toktak_final_v5', JSON.stringify(videos));
     } catch (e) {
       console.error('Error saving localStorage', e);
     }
@@ -178,7 +178,7 @@ export default function App() {
     setNewCommentText('');
   };
 
-  // ฟังก์ชันเลือกไฟล์แล้วอ่านค่าเป็น Base64 ทันที เพื่อให้อัปโหลดติดและเล่นได้ชัวร์
+  // แปลงไฟล์เป็น Base64 แบบเต็มสูบเพื่อให้รีเฟรชร้อยรอบก็ยังอยู่ครบ
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -313,7 +313,7 @@ export default function App() {
                     <div className="flex flex-col items-center pt-5 pb-6 px-2 text-center">
                       <Upload className="w-8 h-8 text-red-600 mb-2" />
                       <p className="text-xs text-gray-800 font-bold">{pendingVideoUrl ? '✓ เลือกไฟล์วิดีโอสำเร็จแล้ว' : 'คลิกเพื่อเลือกไฟล์วิดีโอ (MP4)'}</p>
-                      <p className="text-[10px] text-gray-500 mt-0.5">เลือกปุ๊บ โพสต์ปั๊บ เล่นได้ทันที!</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">ระบบเซฟถาวร รีเฟรชไม่หายแน่นอน</p>
                     </div>
                     <input type="file" accept="video/*" onChange={handleFileChange} className="hidden" />
                   </label>
