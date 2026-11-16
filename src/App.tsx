@@ -1,578 +1,296 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Heart, MessageCircle, Share2, Music, Home, Compass, PlusSquare, Inbox, User, Play, Pause, ShoppingBag, Send, Upload } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Home,
+  ShoppingBag,
+  Plus,
+  Compass,
+  User,
+  Heart,
+  MessageCircle,
+  Share2,
+  Music,
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Sparkles,
+  Crown,
+  Search,
+  ShoppingCart,
+  Trash2,
+  CheckCircle2,
+  X,
+  ArrowRight,
+  ShieldCheck
+} from 'lucide-react';
+import { VideoItem, ProductItem, UserProfile, CartItem } from './types';
+import { ProfileView } from './components/ProfileView';
 
-interface CommentItem {
-  id: string;
-  username: string;
-  text: string;
-  time: string;
-}
-
-interface VideoItem {
-  id: string;
-  url: string;
-  username: string;
-  caption: string;
-  song: string;
-  likes: number;
-  comments: number;
-  shares: number;
-  isLiked?: boolean;
-  commentList?: CommentItem[];
-  hasProduct?: boolean;
-  productName?: string;
-  productPrice?: string;
-}
-
-// วิดีโอตัวอย่างฉบับสมบูรณ์พร้อมฟีเจอร์และตะกร้าสินค้า
-const INITIAL_VIDEOS: VideoItem[] = [
-  {
-    id: '1',
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4',
-    username: '@doglover_th',
-    caption: 'น้องหมาวิ่งเล่นในทุ่งหญ้าอย่างมีความสุข 🐶✨ #น้องหมา #สัตว์เลี้ยงน่ารัก',
-    song: 'เสียงต้นฉบับ - Dog Lover',
-    likes: 1250,
-    comments: 48,
-    shares: 12,
-    hasProduct: true,
-    productName: 'อาหารเมุน้องหมาพรีเมียม 1.5kg',
-    productPrice: '฿390',
-    commentList: [
-      { id: 'c1', username: '@user_a', text: 'น่ารักมากๆ เลยครับซื้อจากไหนเนี่ย', time: '1 วันที่แล้ว' },
-      { id: 'c2', username: '@pet_shop', text: 'สนใจอาหารหมาจิ้มตะกร้าได้เลยครับ', time: '12 ชม. ที่แล้ว' }
-    ]
-  },
-  {
-    id: '2',
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-cute-dog-head-tilt-41585-large.mp4',
-    username: '@pet_world',
-    caption: 'เอียงคอสงสัยอะไรอยู่นะเจ้าตัวเล็ก 🐾❤️ #หมาน่ารัก #tiktokpets',
-    song: 'เสียงต้นฉบับ - Pet World',
-    likes: 3420,
-    comments: 120,
-    shares: 85,
-    hasProduct: false,
-    commentList: [
-      { id: 'c3', username: '@cute_girl', text: 'ละลายยย ใจเจ้ารอยยิ้มนี้', time: '2 ชม. ที่แล้ว' }
-    ]
-  },
-];
-
-export default function App() {
+export function App() {
   const [videos, setVideos] = useState<VideoItem[]>(() => {
     try {
-      const saved = localStorage.getItem('toktak_full_v4');
+      const saved = localStorage.getItem('toktak_my_videos');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
       }
     } catch (e) {
-      console.error('Error loading localStorage', e);
+      console.error('Error loading videos', e);
     }
-    return INITIAL_VIDEOS;
+    return [
+      {
+        id: 'default-1',
+        videoUrl: 'https://www.w3schools.com/html/mov_bbb.mp4',
+        posterUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+        caption: 'มอเตอร์ไซค์ไฟฟ้าประดิษฐ์เอง ฝีมือคนไทยสุดเจ๋ง!',
+        creatorName: 'Golden River City',
+        creatorHandle: '@goldenrivercity',
+        likesCount: 1540,
+        musicTitle: 'Original Sound - TokDesign Creator',
+        isLiked: false,
+        isPrivate: false,
+        isDraft: false
+      }
+    ];
   });
 
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+    try {
+      const savedUser = localStorage.getItem('toktak_current_user');
+      if (savedUser) {
+        return JSON.parse(savedUser);
+      }
+    } catch (e) {}
+    return {
+      email: '***************@*****.***',
+      name: 'Golden River City',
+      handle: '@goldenrivercity',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop&q=95',
+      bio: 'นักประดิษฐ์มอเตอร์ไซค์ไฟฟ้า และครีเอเตอร์ TokTak',
+      followersCount: 1250,
+      followingCount: 180,
+      likesCount: 9400,
+      joinedDate: 'พฤศจิกายน 2568',
+      role: 'superadmin'
+    };
+  });
+
+  const [activeTab, setActiveTab] = useState<'home' | 'shop' | 'create' | 'explore' | 'profile'>('home');
+  const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
-  const [activeTab, setActiveTab] = useState<'home' | 'upload' | 'profile'>('home');
-  
-  // States สำหรับฟีเจอร์ย่อย
-  const [showComments, setShowComments] = useState(false);
-  const [newCommentText, setNewCommentText] = useState('');
-  const [showCartModal, setShowCartModal] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<{name: string, price: string} | null>(null);
+  const [isMuted, setIsMuted] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
-  // ฟอร์มสำหรับอัปโหลดวิดีโอใหม่ (เปลี่ยนเป็นรับไฟล์จากเครื่อง)
-  const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string>('');
-  const [newCaption, setNewCaption] = useState('');
-  const [newSong, setNewSong] = useState('');
-  const [hasProd, setHasProd] = useState(false);
-  const [prodName, setProdName] = useState('');
-  const [prodPrice, setProdPrice] = useState('');
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [myProducts, setMyProducts] = useState<ProductItem[]>([
+    {
+      id: 'p1',
+      name: 'เสื้อยืดโอเวอร์ไซส์ ลิมิเต็ดอิดิชั่น',
+      price: 390,
+      image: 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=800&auto=format&fit=crop&q=80',
+      salesCount: 48
+    }
+  ]);
 
-  const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
-
-  // บันทึกลง localStorage อัตโนมัติ
+  // บันทึกข้อมูลลง localStorage ทันทีที่มีการเปลี่ยนแปลง
   useEffect(() => {
     try {
-      localStorage.setItem('toktak_full_v4', JSON.stringify(videos));
+      localStorage.setItem('toktak_my_videos', JSON.stringify(videos));
     } catch (e) {
-      console.error('Error saving localStorage', e);
+      console.error('Error saving videos', e);
     }
   }, [videos]);
 
-  // จัดการการเล่นวิดีโอตามฟีด
-  useEffect(() => {
-    videoRefs.current.forEach((video, index) => {
-      if (!video) return;
-      if (index === currentIndex) {
-        video.currentTime = 0;
-        video.play().then(() => {
-          setIsPlaying(true);
-        }).catch(() => {
-          setIsPlaying(false);
-        });
+  const handleAddVideo = (newVideo: VideoItem) => {
+    setVideos((prev) => {
+      const updated = [newVideo, ...prev];
+      try {
+        localStorage.setItem('toktak_my_videos', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+    setActiveTab('profile');
+  };
+
+  const handleDeleteVideo = (videoId: string) => {
+    setVideos((prev) => {
+      const updated = prev.filter((v) => v.id !== videoId);
+      try {
+        localStorage.setItem('toktak_my_videos', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  };
+
+  const handleToggleVideoPrivacy = (videoId: string) => {
+    setVideos((prev) =>
+      prev.map((v) => (v.id === videoId ? { ...v, isPrivate: !v.isPrivate } : v))
+    );
+  };
+
+  const togglePlay = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause();
+        setIsPlaying(false);
       } else {
-        video.pause();
+        videoRef.current.play().catch(() => {});
+        setIsPlaying(true);
       }
-    });
-    setShowComments(false);
-  }, [currentIndex, videos]);
-
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const container = e.currentTarget;
-    const index = Math.round(container.scrollTop / container.clientHeight);
-    if (index !== currentIndex && index >= 0 && index < videos.length) {
-      setCurrentIndex(index);
     }
-  };
-
-  const togglePlay = (index: number) => {
-    const video = videoRefs.current[index];
-    if (!video) return;
-    if (video.paused) {
-      video.play();
-      setIsPlaying(true);
-    } else {
-      video.pause();
-      setIsPlaying(false);
-    }
-  };
-
-  const handleLike = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setVideos(videos.map(v => {
-      if (v.id === id) {
-        const isLiked = !v.isLiked;
-        return {
-          ...v,
-          isLiked,
-          likes: isLiked ? v.likes + 1 : v.likes - 1
-        };
-      }
-      return v;
-    }));
-  };
-
-  const handleAddComment = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCommentText.trim()) return;
-
-    const newComment: CommentItem = {
-      id: Date.now().toString(),
-      username: '@my_profile',
-      text: newCommentText.trim(),
-      time: 'เมื่อสักครู่'
-    };
-
-    const updatedVideos = videos.map((v, idx) => {
-      if (idx === currentIndex) {
-        return {
-          ...v,
-          comments: v.comments + 1,
-          commentList: [newComment, ...(v.commentList || [])]
-        };
-      }
-      return v;
-    });
-
-    setVideos(updatedVideos);
-    setNewCommentText('');
-  };
-
-  // ฟังก์ชันเลือกไฟล์วิดีโอจากเครื่อง
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setVideoFile(file);
-      const fileUrl = URL.createObjectURL(file);
-      setVideoPreviewUrl(fileUrl);
-    }
-  };
-
-  const handleAddVideo = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!videoPreviewUrl) {
-      alert('กรุณาเลือกไฟล์วิดีโอก่อนโพสต์ครับ');
-      return;
-    }
-
-    const newItem: VideoItem = {
-      id: Date.now().toString(),
-      url: videoPreviewUrl,
-      username: '@my_profile',
-      caption: newCaption.trim() || 'วิดีโอใหม่ของฉัน 🚀 #toktak',
-      song: newSong.trim() || 'เสียงต้นฉบับ - Creator',
-      likes: 1,
-      comments: 0,
-      shares: 0,
-      hasProduct: hasProd,
-      productName: prodName.trim() || 'สินค้าแนะนำ',
-      productPrice: prodPrice.trim() || '฿199',
-      commentList: []
-    };
-
-    setVideos([newItem, ...videos]);
-    setVideoFile(null);
-    setVideoPreviewUrl('');
-    setNewCaption('');
-    setNewSong('');
-    setHasProd(false);
-    setProdName('');
-    setProdPrice('');
-    setActiveTab('home');
-    setCurrentIndex(0);
   };
 
   return (
-    <div className="flex justify-center items-center bg-zinc-950 h-[100dvh] w-screen overflow-hidden select-none">
-      {/* Container มือถือ */}
-      <div className="relative w-full max-w-md h-full bg-black flex flex-col overflow-hidden shadow-2xl border-x border-zinc-900">
-        
-        {/* ส่วนเนื้อหาหลัก */}
-        <div className="flex-1 relative overflow-hidden">
-          
-          {/* แท็บ Home: ฟีดวิดีโอ */}
-          {activeTab === 'home' && (
-            <div 
-              className="h-full w-full overflow-y-scroll snap-y snap-mandatory no-scrollbar"
-              onScroll={handleScroll}
-            >
-              {videos.map((video, index) => (
-                <div 
-                  key={video.id} 
-                  className="relative w-full h-full snap-start flex items-center justify-center bg-black"
-                  onClick={() => togglePlay(index)}
-                >
-                  <video
-                    ref={(el) => (videoRefs.current[index] = el)}
-                    src={video.url}
-                    className="w-full h-full object-cover"
-                    loop
-                    playsInline
-                    muted={false}
-                  />
-
-                  {/* ปุ่ม Play/Pause กลางจอเมื่อหยุด */}
-                  {!isPlaying && index === currentIndex && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
-                      <Play className="w-16 h-16 text-white opacity-80 fill-white" />
-                    </div>
-                  )}
-
-                  {/* ตะกร้าสินค้าด้านบนซ้าย (ถ้ามี) */}
-                  {video.hasProduct && (
-                    <div className="absolute top-12 left-4 z-20">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedProduct({ name: video.productName || 'สินค้า', price: video.productPrice || '฿0' });
-                          setShowCartModal(true);
-                        }}
-                        className="flex items-center gap-1.5 bg-zinc-900/80 backdrop-blur-md border border-red-500/50 text-white px-3 py-1.5 rounded-full shadow-lg active:scale-95 transition-transform"
-                      >
-                        <ShoppingBag className="w-4 h-4 text-red-500 animate-bounce" />
-                        <span className="text-xs font-semibold truncate max-w-[150px]">{video.productName}</span>
-                        <span className="text-xs bg-red-600 px-1.5 py-0.5 rounded text-white font-bold">{video.productPrice}</span>
-                      </button>
-                    </div>
-                  )}
-
-                  {/* รายละเอียดด้านซ้าย (Caption & Sound) */}
-                  <div className="absolute bottom-16 left-4 right-20 text-white z-10 pointer-events-none">
-                    <h3 className="font-bold text-base drop-shadow">{video.username}</h3>
-                    <p className="text-sm mt-1 drop-shadow line-clamp-2">{video.caption}</p>
-                    <div className="flex items-center gap-2 mt-2 text-xs opacity-90">
-                      <Music className="w-3.5 h-3.5 animate-spin" />
-                      <span className="truncate">{video.song}</span>
-                    </div>
-                  </div>
-
-                  {/* ปุ่มกดด้านขวา (Like, Comment, Share) */}
-                  <div className="absolute bottom-20 right-3 flex flex-col items-center gap-4 text-white z-10">
-                    <button 
-                      className="flex flex-col items-center focus:outline-none" 
-                      onClick={(e) => handleLike(video.id, e)}
-                    >
-                      <div className="p-3 bg-black/40 rounded-full backdrop-blur-sm active:scale-125 transition-transform">
-                        <Heart className={`w-7 h-7 ${video.isLiked ? 'text-red-500 fill-red-500' : 'text-white'}`} />
-                      </div>
-                      <span className="text-xs mt-1 font-medium">{video.likes}</span>
-                    </button>
-
-                    <button 
-                      className="flex flex-col items-center focus:outline-none" 
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        setShowComments(true); 
-                      }}
-                    >
-                      <div className="p-3 bg-black/40 rounded-full backdrop-blur-sm">
-                        <MessageCircle className="w-7 h-7 text-white fill-white/20" />
-                      </div>
-                      <span className="text-xs mt-1 font-medium">{video.comments}</span>
-                    </button>
-
-                    <button className="flex flex-col items-center focus:outline-none" onClick={(e) => e.stopPropagation()}>
-                      <div className="p-3 bg-black/40 rounded-full backdrop-blur-sm">
-                        <Share2 className="w-7 h-7 text-white" />
-                      </div>
-                      <span className="text-xs mt-1 font-medium">{video.shares}</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* แท็บ Upload: หน้าเพิ่มวิดีโอ (เปลี่ยนเป็นเลือกไฟล์จากคอมพิวเตอร์/มือถือ) */}
-          {activeTab === 'upload' && (
-            <div className="h-full w-full bg-zinc-900 text-white flex flex-col p-6 overflow-y-auto">
-              <h2 className="text-xl font-bold mb-4 text-center mt-2">อัปโหลดวิดีโอจากเครื่อง</h2>
-              
-              <form onSubmit={handleAddVideo} className="flex flex-col gap-3 pb-12">
-                {/* ส่วนเลือกไฟล์วิดีโอ */}
-                <div>
-                  <label className="text-xs text-zinc-400 mb-1 block">เลือกไฟล์วิดีโอ (MP4, MOV)</label>
-                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-zinc-700 border-dashed rounded-xl cursor-pointer bg-zinc-800/50 hover:bg-zinc-800 transition-colors">
-                    {videoFile ? (
-                      <div className="flex flex-col items-center text-center p-2">
-                        <p className="text-xs font-semibold text-green-400 truncate max-w-[250px]">✓ {videoFile.name}</p>
-                        <span className="text-[10px] text-zinc-400 mt-1">คลิกเพื่อเปลี่ยนไฟล์</span>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center pt-5 pb-6">
-                        <Upload className="w-8 h-8 text-zinc-400 mb-2" />
-                        <p className="text-xs text-zinc-300 font-medium">คลิกเพื่อเลือกวิดีโอจากคอม/มือถือ</p>
-                        <p className="text-[10px] text-zinc-500 mt-0.5">MP4 หรือไฟล์วิดีโอทั่วไป</p>
-                      </div>
-                    )}
-                    <input type="file" accept="video/*" onChange={handleFileChange} className="hidden" />
-                  </label>
-                </div>
-
-                {/* แสดงตัวอย่างวิดีโอย่อตอนเลือกเสร็จ */}
-                {videoPreviewUrl && (
-                  <div className="w-full h-36 bg-black rounded-lg overflow-hidden relative border border-zinc-700">
-                    <video src={videoPreviewUrl} className="w-full h-full object-contain" controls />
+    <div className="w-full h-screen bg-black text-white flex flex-col justify-between overflow-hidden select-none">
+      <div className="flex-1 relative overflow-hidden flex flex-col justify-center items-center">
+        {activeTab === 'home' && (
+          <div className="w-full h-full relative flex items-center justify-center bg-slate-900" onClick={togglePlay}>
+            {videos.length > 0 && videos[currentVideoIndex] ? (
+              <>
+                <video
+                  ref={videoRef}
+                  src={videos[currentVideoIndex].videoUrl}
+                  poster={videos[currentVideoIndex].posterUrl}
+                  autoPlay
+                  playsInline
+                  loop
+                  muted
+                  className="w-full h-full object-cover"
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                />
+                {!isPlaying && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
+                    <Play className="w-16 h-16 text-white opacity-80 fill-white" />
                   </div>
                 )}
-
-                <div>
-                  <label className="text-xs text-zinc-400 mb-1 block">คำอธิบาย (Caption)</label>
-                  <textarea 
-                    placeholder="เขียนแคปชันของคุณที่นี่..." 
-                    value={newCaption}
-                    onChange={(e) => setNewCaption(e.target.value)}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-red-500 h-16 resize-none"
-                  />
+                <div className="absolute bottom-16 left-4 right-16 z-20 text-white drop-shadow-md">
+                  <h3 className="text-sm font-bold">{videos[currentVideoIndex].creatorName}</h3>
+                  <p className="text-xs mt-1 line-clamp-2">{videos[currentVideoIndex].caption}</p>
                 </div>
+              </>
+            ) : (
+              <div className="text-center text-slate-400 text-xs">ยังไม่มีวิดีโอในระบบ</div>
+            )}
+          </div>
+        )}
 
-                <div>
-                  <label className="text-xs text-zinc-400 mb-1 block">ชื่อเพลง / เสียงประกอบ</label>
-                  <input 
-                    type="text" 
-                    placeholder="เสียงต้นฉบับ - Creator" 
-                    value={newSong}
-                    onChange={(e) => setNewSong(e.target.value)}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-red-500"
-                  />
-                </div>
+        {activeTab === 'profile' && (
+          <div className="w-full h-full overflow-y-auto bg-slate-50 text-slate-900">
+            <ProfileView
+              currentUser={currentUser}
+              onLoginWithGoogle={(email, name) => {
+                if (email) {
+                  setCurrentUser((prev) => ({
+                    ...(prev || {
+                      followersCount: 0,
+                      followingCount: 0,
+                      likesCount: 0,
+                      joinedDate: 'วันนี้',
+                      role: 'user'
+                    }),
+                    email,
+                    name: name || email.split('@')[0],
+                    handle: `@${email.split('@')[0]}`
+                  }));
+                }
+              }}
+              onLogout={() => setCurrentUser(null)}
+              onUpdateProfile={(updated) => {
+                setCurrentUser((prev) => (prev ? { ...prev, ...updated } : null));
+              }}
+              cart={cart}
+              onRemoveFromCart={(id) => setCart((prev) => prev.filter((i) => i.id !== id))}
+              onClearCart={() => setCart([])}
+              onOpenDesignStudio={() => alert('เปิดหน้าดีไซน์สตูดิโอ')}
+              onOpenCreateClip={() => setActiveTab('create')}
+              onOpenAdminBackend={() => alert('เปิดหลังบ้าน Admin')}
+              onOpenTokTakShop={() => alert('เปิด TokTak Shop')}
+              onPlayVideo={(vid) => {
+                const idx = videos.findIndex((v) => v.id === vid.id);
+                if (idx !== -1) setCurrentVideoIndex(idx);
+                setActiveTab('home');
+              }}
+              onDeleteVideo={handleDeleteVideo}
+              onToggleVideoPrivacy={handleToggleVideoPrivacy}
+              myProducts={myProducts}
+              myVideos={videos}
+            />
+          </div>
+        )}
 
-                {/* ตะกร้าสินค้าสวิทช์ */}
-                <div className="bg-zinc-800/50 p-3 rounded-xl border border-zinc-700">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold flex items-center gap-1.5">
-                      <ShoppingBag className="w-3.5 h-3.5 text-red-500" /> พ่วงตะกร้าสินค้า
-                    </span>
-                    <input 
-                      type="checkbox" 
-                      checked={hasProd} 
-                      onChange={(e) => setHasProd(e.target.checked)}
-                      className="w-4 h-4 accent-red-600"
-                    />
-                  </div>
-                  {hasProd && (
-                    <div className="flex flex-col gap-2 mt-2">
-                      <input 
-                        type="text" 
-                        placeholder="ชื่อสินค้า เช่น เสื้อยืดสุดเท่" 
-                        value={prodName}
-                        onChange={(e) => setProdName(e.target.value)}
-                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-2 text-xs text-white"
-                      />
-                      <input 
-                        type="text" 
-                        placeholder="ราคา เช่น ฿290" 
-                        value={prodPrice}
-                        onChange={(e) => setProdPrice(e.target.value)}
-                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-2 text-xs text-white"
-                      />
-                    </div>
-                  )}
-                </div>
+        {activeTab === 'create' && (
+          <div className="w-full h-full bg-white text-slate-900 p-4 flex flex-col justify-center items-center">
+            <h2 className="text-base font-bold mb-4">โพสต์คลิปวิดีโอใหม่</h2>
+            <button
+              onClick={() => {
+                const sampleVid: VideoItem = {
+                  id: 'clip-' + Date.now(),
+                  videoUrl: 'https://www.w3schools.com/html/mov_bbb.mp4',
+                  posterUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+                  caption: 'คลิปมอเตอร์ไซค์ไฟฟ้าคันใหม่ล่าสุด!',
+                  creatorName: currentUser?.name || 'Golden River City',
+                  creatorHandle: currentUser?.handle || '@goldenrivercity',
+                  authorEmail: currentUser?.email,
+                  likesCount: 1,
+                  musicTitle: 'Electric Motorcycle Sound',
+                  isLiked: false,
+                  isPrivate: false,
+                  isDraft: false
+                };
+                handleAddVideo(sampleVid);
+              }}
+              className="px-4 py-2 bg-rose-500 text-white rounded-xl text-xs font-bold shadow-md active:scale-95 transition"
+            >
+              จำลองอัปโหลดคลิปตัวอย่าง
+            </button>
+            <button
+              onClick={() => setActiveTab('profile')}
+              className="mt-3 text-xs text-slate-500 underline"
+            >
+              กลับหน้าโปรไฟล์
+            </button>
+          </div>
+        )}
+      </div>
 
-                <button 
-                  type="submit" 
-                  className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg transition-colors mt-1 shadow-lg text-sm"
-                >
-                  โพสต์วิดีโอทันที
-                </button>
-              </form>
-            </div>
-          )}
-
-          {/* แท็บ Profile: หน้าโปรไฟล์ */}
-          {activeTab === 'profile' && (
-            <div className="h-full w-full bg-zinc-900 text-white flex flex-col items-center pt-12 px-6 overflow-y-auto">
-              <div className="w-20 h-20 bg-gradient-to-tr from-yellow-400 to-red-500 rounded-full flex items-center justify-center text-2xl font-bold mb-3 shadow-lg">
-                TH
-              </div>
-              <h2 className="text-lg font-bold">@my_profile</h2>
-              <p className="text-xs text-zinc-400 mt-1">ผู้สร้างคอนเทนต์วิดีโอสั้นตัวยง</p>
-              
-              <div className="flex gap-6 mt-6 text-center">
-                <div>
-                  <span className="block font-bold text-base">{videos.length}</span>
-                  <span className="text-xs text-zinc-400">โพสต์</span>
-                </div>
-                <div>
-                  <span className="block font-bold text-base">1.5M</span>
-                  <span className="text-xs text-zinc-400">ผู้ติดตาม</span>
-                </div>
-                <div>
-                  <span className="block font-bold text-base">3.2M</span>
-                  <span className="text-xs text-zinc-400">ถูกใจ</span>
-                </div>
-              </div>
-
-              <div className="w-full mt-8 border-t border-zinc-800 pt-4 pb-12">
-                <h3 className="text-xs font-semibold text-zinc-400 mb-3">วิดีโอทั้งหมดของคุณ ({videos.length})</h3>
-                <div className="grid grid-cols-3 gap-1">
-                  {videos.map((v) => (
-                    <div key={v.id} className="aspect-[9/16] bg-zinc-800 relative overflow-hidden rounded">
-                      <video src={v.url} className="w-full h-full object-cover" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Modal แสดงกล่องคอมเมนต์ */}
-          {showComments && (
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex flex-col justify-end animate-fade-in">
-              <div className="bg-zinc-900 w-full h-[60%] rounded-t-2xl flex flex-col text-white border-t border-zinc-800">
-                <div className="flex justify-between items-center p-4 border-b border-zinc-800">
-                  <span className="text-sm font-bold">ความคิดเห็น ({videos[currentIndex]?.comments || 0})</span>
-                  <button onClick={() => setShowComments(false)} className="text-zinc-400 font-bold px-2">✕</button>
-                </div>
-                
-                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-                  {videos[currentIndex]?.commentList?.map((c) => (
-                    <div key={c.id} className="flex gap-3">
-                      <div className="w-8 h-8 bg-zinc-700 rounded-full flex items-center justify-center text-xs font-bold shrink-0">
-                        {c.username.substring(1, 3).toUpperCase()}
-                      </div>
-                      <div>
-                        <span className="text-xs text-zinc-400 font-semibold">{c.username}</span>
-                        <p className="text-sm mt-0.5">{c.text}</p>
-                        <span className="text-[10px] text-zinc-500 mt-1 block">{c.time}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <form onSubmit={handleAddComment} className="p-3 bg-zinc-950 border-t border-zinc-800 flex gap-2">
-                  <input 
-                    type="text" 
-                    placeholder="แสดงความคิดเห็น..." 
-                    value={newCommentText}
-                    onChange={(e) => setNewCommentText(e.target.value)}
-                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-full px-4 py-2 text-sm text-white focus:outline-none focus:border-red-500"
-                  />
-                  <button type="submit" className="bg-red-600 text-white p-2 rounded-full hover:bg-red-700">
-                    <Send className="w-4 h-4" />
-                  </button>
-                </form>
-              </div>
-            </div>
-          )}
-
-          {/* Modal ตะกร้าสินค้า */}
-          {showCartModal && selectedProduct && (
-            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-zinc-900 border border-zinc-800 w-full max-w-xs rounded-2xl p-5 text-white shadow-2xl">
-                <div className="flex justify-between items-center mb-4">
-                  <span className="text-sm font-bold flex items-center gap-1.5 text-red-500">
-                    <ShoppingBag className="w-4 h-4" /> ตะกร้าสินค้าช้อปปิ้ง
-                  </span>
-                  <button onClick={() => setShowCartModal(false)} className="text-zinc-400 font-bold">✕</button>
-                </div>
-                <div className="bg-zinc-800 p-3 rounded-xl mb-4">
-                  <p className="font-semibold text-sm">{selectedProduct.name}</p>
-                  <p className="text-red-500 font-bold text-base mt-1">{selectedProduct.price}</p>
-                </div>
-                <button 
-                  onClick={() => {
-                    alert('สั่งซื้อสินค้าสำเร็จ!');
-                    setShowCartModal(false);
-                  }}
-                  className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded-xl text-sm transition-colors"
-                >
-                  ชำระเงินทันที
-                </button>
-              </div>
-            </div>
-          )}
-
-        </div>
-
-        {/* แถบเมนูด้านล่างสุด (Bottom Navigation) ตรึงถาวร */}
-        <div className="h-14 bg-black border-t border-zinc-900 flex items-center justify-around px-2 z-20 shrink-0">
-          <button 
-            onClick={() => setActiveTab('home')} 
-            className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'home' ? 'text-white' : 'text-zinc-500'}`}
-          >
-            <Home className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">หน้าหลัก</span>
-          </button>
-
-          <button 
-            onClick={() => setActiveTab('home')} 
-            className="flex flex-col items-center justify-center w-12 h-full text-zinc-500"
-          >
-            <Compass className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">สำรวจ</span>
-          </button>
-
-          {/* ปุ่มบวกตรงกลาง */}
-          <button 
-            onClick={() => setActiveTab('upload')} 
-            className="flex items-center justify-center w-10 h-7 bg-white rounded-md text-black hover:bg-zinc-200 transition-colors shadow"
-          >
-            <PlusSquare className="w-5 h-5 fill-white text-black" />
-          </button>
-
-          <button 
-            onClick={() => setActiveTab('home')} 
-            className="flex flex-col items-center justify-center w-12 h-full text-zinc-500"
-          >
-            <Inbox className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">กล่องข้อความ</span>
-          </button>
-
-          <button 
-            onClick={() => setActiveTab('profile')} 
-            className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'profile' ? 'text-white' : 'text-zinc-500'}`}
-          >
-            <User className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">ฉัน</span>
-          </button>
-        </div>
-
+      <div className="h-14 bg-white border-t border-slate-200 flex items-center justify-around text-slate-600 px-2 z-30 shrink-0">
+        <button
+          onClick={() => setActiveTab('home')}
+          className={`flex flex-col items-center ${activeTab === 'home' ? 'text-rose-600 font-bold' : 'text-slate-400'}`}
+        >
+          <Home className="w-5 h-5" />
+          <span className="text-[10px] mt-0.5">หน้าแรก</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('shop')}
+          className={`flex flex-col items-center ${activeTab === 'shop' ? 'text-rose-600 font-bold' : 'text-slate-400'}`}
+        >
+          <ShoppingBag className="w-5 h-5" />
+          <span className="text-[10px] mt-0.5">ร้านค้า</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('create')}
+          className="w-10 h-10 rounded-full bg-gradient-to-r from-cyan-400 to-rose-500 text-white flex items-center justify-center shadow-md active:scale-95 transition"
+        >
+          <Plus className="w-6 h-6 stroke-[3]" />
+        </button>
+        <button
+          onClick={() => setActiveTab('explore')}
+          className={`flex flex-col items-center ${activeTab === 'explore' ? 'text-rose-600 font-bold' : 'text-slate-400'}`}
+        >
+          <Compass className="w-5 h-5" />
+          <span className="text-[10px] mt-0.5">อื่นๆ</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('profile')}
+          className={`flex flex-col items-center ${activeTab === 'profile' ? 'text-rose-600 font-bold' : 'text-slate-400'}`}
+        >
+          <User className="w-5 h-5" />
+          <span className="text-[10px] mt-0.5">โปรไฟล์</span>
+        </button>
       </div>
     </div>
   );
