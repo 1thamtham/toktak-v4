@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Heart, MessageCircle, Share2, Music, Home, Compass, PlusSquare, Inbox, User, Play, ShoppingBag, Send, Upload } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Music, Home, Compass, PlusSquare, Inbox, User, Play, ShoppingBag, Send, Upload, Tag } from 'lucide-react';
 
 interface CommentItem {
   id: string;
@@ -24,6 +24,14 @@ interface VideoItem {
   productPrice?: string;
 }
 
+interface ProductItem {
+  id: string;
+  name: string;
+  price: string;
+  sales: string;
+  image: string;
+}
+
 const INITIAL_VIDEOS: VideoItem[] = [
   {
     id: '1',
@@ -43,10 +51,16 @@ const INITIAL_VIDEOS: VideoItem[] = [
   }
 ];
 
+const INITIAL_PRODUCTS: ProductItem[] = [
+  { id: 'p1', name: 'อาหารเมุน้องหมาพรีเมียม 1.5kg', price: '฿390', sales: 'ขายแล้ว 1.2พัน ชิ้น', image: 'https://images.unsplash.com/photo-1589924691995-400dc9ecc119?w=300&auto=format&fit=crop&q=60' },
+  { id: 'p2', name: 'เสื้อยืดสุนัขลายแฟชั่นสุดเท่', price: '฿190', sales: 'ขายแล้ว 850 ชิ้น', image: 'https://images.unsplash.com/photo-1583511655857-d19b40a7a54e?w=300&auto=format&fit=crop&q=60' },
+  { id: 'p3', name: 'แชมพูอาบน้ำสูตรอ่อนโยน', price: '฿250', sales: 'ขายแล้ว 540 ชิ้น', image: 'https://images.unsplash.com/photo-1535930891776-0c2dfb7fda1a?w=300&auto=format&fit=crop&q=60' }
+];
+
 export default function App() {
   const [videos, setVideos] = useState<VideoItem[]>(() => {
     try {
-      const saved = localStorage.getItem('toktak_fresh_v1');
+      const saved = localStorage.getItem('toktak_shop_v1');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -57,16 +71,17 @@ export default function App() {
     return INITIAL_VIDEOS;
   });
 
+  const [products] = useState<ProductItem[]>(INITIAL_PRODUCTS);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
-  const [activeTab, setActiveTab] = useState<'home' | 'upload' | 'profile' | 'services'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'upload' | 'profile' | 'services' | 'shop'>('home');
   
   const [showComments, setShowComments] = useState(false);
   const [newCommentText, setNewCommentText] = useState('');
   const [showCartModal, setShowCartModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<{name: string, price: string} | null>(null);
 
-  // ฟอร์มเพิ่มวิดีโอ (อัปโหลดจากเครื่องแปลงเป็น Base64 ป้องกันรีเฟรชหาย)
+  // ฟอร์มเพิ่มวิดีโอ
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string>('');
   const [newCaption, setNewCaption] = useState('');
   const [newSong, setNewSong] = useState('');
@@ -78,7 +93,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('toktak_fresh_v1', JSON.stringify(videos));
+      localStorage.setItem('toktak_shop_v1', JSON.stringify(videos));
     } catch (e) {
       console.error('Error saving localStorage', e);
     }
@@ -357,27 +372,55 @@ export default function App() {
             </div>
           )}
 
+          {/* แท็บหน้าร้านค้าและสินค้า */}
+          {activeTab === 'shop' && (
+            <div className="h-full w-full bg-zinc-900 text-white flex flex-col p-4 overflow-y-auto">
+              <h2 className="text-lg font-bold mb-3 text-center mt-2 flex items-center justify-center gap-2">
+                <ShoppingBag className="w-5 h-5 text-red-500" /> ตะกร้าสินค้าแนะนำ
+              </h2>
+              <div className="grid grid-cols-2 gap-3 pb-12">
+                {products.map((item) => (
+                  <div key={item.id} className="bg-zinc-800 rounded-xl overflow-hidden border border-zinc-700 flex flex-col justify-between">
+                    <img src={item.image} alt={item.name} className="w-full h-28 object-cover" />
+                    <div className="p-2.5 flex flex-col flex-1 justify-between">
+                      <div>
+                        <h3 className="font-semibold text-xs line-clamp-2">{item.name}</h3>
+                        <p className="text-[10px] text-zinc-400 mt-0.5">{item.sales}</p>
+                      </div>
+                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-zinc-700/50">
+                        <span className="text-red-500 font-bold text-sm">{item.price}</span>
+                        <button 
+                          onClick={() => {
+                            setSelectedProduct({ name: item.name, price: item.price });
+                            setShowCartModal(true);
+                          }}
+                          className="bg-red-600 hover:bg-red-700 text-white text-[10px] px-2.5 py-1 rounded-md font-semibold"
+                        >
+                          ซื้อเลย
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* แท็บหน้าบริการ */}
           {activeTab === 'services' && (
             <div className="h-full w-full bg-zinc-900 text-white flex flex-col p-6 overflow-y-auto">
-              <h2 className="text-xl font-bold mb-4 text-center mt-2">ศูนย์รวมบริการและสินค้า</h2>
+              <h2 className="text-xl font-bold mb-4 text-center mt-2">ศูนย์รวมบริการและเมนู</h2>
               <div className="grid grid-cols-2 gap-3 pb-12">
-                <div className="bg-zinc-800 p-4 rounded-xl border border-zinc-700 flex flex-col justify-between">
-                  <div>
-                    <ShoppingBag className="w-8 h-8 text-red-500 mb-2" />
-                    <h3 className="font-bold text-sm">ตะกร้าสินค้า</h3>
-                    <p className="text-xs text-zinc-400 mt-1">จัดการสินค้าพ่วงในคลิป</p>
-                  </div>
-                  <span className="text-xs bg-red-600 text-white py-1 px-2 rounded mt-4 text-center font-bold">พร้อมใช้งาน</span>
-                </div>
-                <div className="bg-zinc-800 p-4 rounded-xl border border-zinc-700 flex flex-col justify-between">
-                  <div>
-                    <Compass className="w-8 h-8 text-blue-500 mb-2" />
-                    <h3 className="font-bold text-sm">สำรวจฟีด</h3>
-                    <p className="text-xs text-zinc-400 mt-1">ดูวิดีโอทั้งหมด</p>
-                  </div>
-                  <button onClick={() => setActiveTab('home')} className="text-xs bg-blue-600 text-white py-1 px-2 rounded mt-4 text-center font-bold">ไปที่ฟีด</button>
-                </div>
+                <button onClick={() => setActiveTab('shop')} className="bg-zinc-800 p-4 rounded-xl border border-zinc-700 flex flex-col items-center text-center hover:bg-zinc-750 transition-colors">
+                  <ShoppingBag className="w-8 h-8 text-red-500 mb-2" />
+                  <h3 className="font-bold text-sm">ร้านค้าตะกร้า</h3>
+                  <p className="text-xs text-zinc-400 mt-1">เลือกซื้อสินค้าช้อปปิ้ง</p>
+                </button>
+                <button onClick={() => setActiveTab('home')} className="bg-zinc-800 p-4 rounded-xl border border-zinc-700 flex flex-col items-center text-center hover:bg-zinc-750 transition-colors">
+                  <Compass className="w-8 h-8 text-blue-500 mb-2" />
+                  <h3 className="font-bold text-sm">สำรวจฟีด</h3>
+                  <p className="text-xs text-zinc-400 mt-1">ดูวิดีโอทั้งหมด</p>
+                </button>
               </div>
             </div>
           )}
@@ -492,18 +535,18 @@ export default function App() {
             <span className="text-[10px] mt-0.5">หน้าหลัก</span>
           </button>
 
-          <button onClick={() => setActiveTab('services')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'services' ? 'text-white' : 'text-zinc-500'}`}>
-            <Compass className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">บริการ</span>
+          <button onClick={() => setActiveTab('shop')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'shop' ? 'text-white' : 'text-zinc-500'}`}>
+            <Tag className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">ตะกร้า</span>
           </button>
 
           <button onClick={() => setActiveTab('upload')} className="flex items-center justify-center w-10 h-7 bg-white rounded-md text-black hover:bg-zinc-200 transition-colors shadow">
             <PlusSquare className="w-5 h-5 fill-white text-black" />
           </button>
 
-          <button onClick={() => setActiveTab('home')} className="flex flex-col items-center justify-center w-12 h-full text-zinc-500">
-            <Inbox className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">ข้อความ</span>
+          <button onClick={() => setActiveTab('services')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'services' ? 'text-white' : 'text-zinc-500'}`}>
+            <Compass className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">บริการ</span>
           </button>
 
           <button onClick={() => setActiveTab('profile')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'profile' ? 'text-white' : 'text-zinc-500'}`}>
