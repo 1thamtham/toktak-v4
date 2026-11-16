@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Heart, MessageCircle, Share2, Music, Home, Compass, PlusSquare, Inbox, User, Play, ShoppingBag, Send, Upload, Store } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Music, Home, Compass, PlusSquare, User, Play, ShoppingBag, Send, Store, Bookmark, MoreVertical } from 'lucide-react';
 
 interface CommentItem {
   id: string;
@@ -12,12 +12,15 @@ interface VideoItem {
   id: string;
   url: string;
   username: string;
+  userAvatar: string;
   caption: string;
   song: string;
   likes: number;
   comments: number;
   shares: number;
+  saves: number;
   isLiked?: boolean;
+  isSaved?: boolean;
   commentList?: CommentItem[];
   hasProduct?: boolean;
   productName?: string;
@@ -36,12 +39,14 @@ const INITIAL_VIDEOS: VideoItem[] = [
   {
     id: '1',
     url: 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4',
-    username: '@doglover_th',
+    username: '@my_profile',
+    userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=60',
     caption: 'น้องหมาวิ่งเล่นในทุ่งหญ้าอย่างมีความสุข 🐶✨ #น้องหมา #สัตว์เลี้ยงน่ารัก',
-    song: 'เสียงต้นฉบับ - Dog Lover',
+    song: 'เสียงต้นฉบับ - Creator Studio',
     likes: 1250,
     comments: 48,
     shares: 12,
+    saves: 35,
     hasProduct: true,
     productName: 'อาหารเมุน้องหมาพรีเมียม 1.5kg',
     productPrice: '฿390',
@@ -53,11 +58,13 @@ const INITIAL_VIDEOS: VideoItem[] = [
     id: '2',
     url: 'https://assets.mixkit.co/videos/preview/mixkit-cute-dog-head-tilt-41585-large.mp4',
     username: '@pet_world',
+    userAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=60',
     caption: 'เอียงคอสงสัยอะไรอยู่นะเจ้าตัวเล็ก 🐾❤️ #หมาน่ารัก #tiktokpets',
     song: 'เสียงต้นฉบับ - Pet World',
     likes: 3420,
     comments: 120,
     shares: 85,
+    saves: 112,
     hasProduct: false,
     commentList: []
   }
@@ -72,7 +79,7 @@ const INITIAL_PRODUCTS: ProductItem[] = [
 export default function App() {
   const [videos, setVideos] = useState<VideoItem[]>(() => {
     try {
-      const saved = localStorage.getItem('toktak_final_v5');
+      const saved = localStorage.getItem('toktak_line_fix_v10');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -92,8 +99,9 @@ export default function App() {
   const [newCommentText, setNewCommentText] = useState('');
   const [showCartModal, setShowCartModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<{name: string, price: string} | null>(null);
+  const [showShareModal, setShowShareModal] = useState(false);
 
-  const [pendingVideoUrl, setPendingVideoUrl] = useState<string>('');
+  const [videoUrlInput, setVideoUrlInput] = useState('');
   const [newCaption, setNewCaption] = useState('');
   const [newSong, setNewSong] = useState('');
   const [hasProd, setHasProd] = useState(false);
@@ -104,7 +112,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('toktak_final_v5', JSON.stringify(videos));
+      localStorage.setItem('toktak_line_fix_v10', JSON.stringify(videos));
     } catch (e) {
       console.error('Error saving localStorage', e);
     }
@@ -154,6 +162,17 @@ export default function App() {
     }));
   };
 
+  const handleSave = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setVideos(videos.map(v => {
+      if (v.id === id) {
+        const isSaved = !v.isSaved;
+        return { ...v, isSaved, saves: isSaved ? v.saves + 1 : v.saves - 1 };
+      }
+      return v;
+    }));
+  };
+
   const handleAddComment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCommentText.trim()) return;
@@ -178,34 +197,21 @@ export default function App() {
     setNewCommentText('');
   };
 
-  // แปลงไฟล์เป็น Base64 แบบเต็มสูบเพื่อให้รีเฟรชร้อยรอบก็ยังอยู่ครบ
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPendingVideoUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
   const handleAddVideo = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pendingVideoUrl) {
-      alert('กรุณาเลือกไฟล์วิดีโอก่อนกดโพสต์ครับ!');
-      return;
-    }
+    const finalUrl = videoUrlInput.trim() || 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4';
 
     const newItem: VideoItem = {
       id: Date.now().toString(),
-      url: pendingVideoUrl,
+      url: finalUrl,
       username: '@my_profile',
+      userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=60',
       caption: newCaption.trim() || 'วิดีโอใหม่ของฉัน 🚀',
-      song: newSong.trim() || 'เสียงต้นฉบับ - Creator',
+      song: newSong.trim() || 'เสียงต้นฉบับ - Creator Studio',
       likes: 1,
       comments: 0,
       shares: 0,
+      saves: 0,
       hasProduct: hasProd,
       productName: prodName.trim() || 'สินค้าแนะนำ',
       productPrice: prodPrice.trim() || '฿199',
@@ -213,7 +219,7 @@ export default function App() {
     };
 
     setVideos([newItem, ...videos]);
-    setPendingVideoUrl('');
+    setVideoUrlInput('');
     setNewCaption('');
     setNewSong('');
     setHasProd(false);
@@ -240,6 +246,7 @@ export default function App() {
                     className="w-full h-full object-cover"
                     loop
                     playsInline
+                    autoPlay
                     muted={false}
                   />
 
@@ -249,81 +256,98 @@ export default function App() {
                     </div>
                   )}
 
+                  {/* แถบสินค้าพ่วงด้านบน */}
                   {video.hasProduct && (
-                    <div className="absolute top-12 left-4 z-20">
+                    <div className="absolute top-12 left-4 z-30">
                       <button 
                         onClick={(e) => {
                           e.stopPropagation();
                           setSelectedProduct({ name: video.productName || 'สินค้า', price: video.productPrice || '฿0' });
                           setShowCartModal(true);
                         }}
-                        className="flex items-center gap-1.5 bg-white/90 backdrop-blur-md border border-red-500 text-gray-900 px-3 py-1.5 rounded-full shadow-lg"
+                        className="flex items-center gap-1.5 bg-white/95 backdrop-blur-md border border-red-500 text-gray-900 px-3 py-1.5 rounded-full shadow-lg"
                       >
                         <ShoppingBag className="w-4 h-4 text-red-600 animate-bounce" />
-                        <span className="text-xs font-bold truncate max-w-[150px]">{video.productName}</span>
+                        <span className="text-xs font-bold truncate max-w-[140px]">{video.productName}</span>
                         <span className="text-xs bg-red-600 px-1.5 py-0.5 rounded text-white font-bold">{video.productPrice}</span>
                       </button>
                     </div>
                   )}
 
-                  <div className="absolute bottom-16 left-4 right-20 text-white z-10 pointer-events-none">
-                    <h3 className="font-bold text-base drop-shadow">{video.username}</h3>
-                    <p className="text-sm mt-1 drop-shadow line-clamp-2">{video.caption}</p>
+                  {/* รายละเอียดด้านล่าง (โปรไฟล์ + แคปชัน + เสียงเพลง) */}
+                  <div className="absolute bottom-16 left-4 right-20 text-white z-30 pointer-events-none">
+                    <div className="flex items-center gap-2 mb-2 pointer-events-auto">
+                      <img src={video.userAvatar} alt="avatar" className="w-9 h-9 rounded-full border-2 border-white object-cover shadow" />
+                      <span className="font-bold text-sm drop-shadow">{video.username}</span>
+                      <button onClick={(e) => { e.stopPropagation(); alert('ติดตามสำเร็จ!'); }} className="bg-red-600 text-white text-[10px] px-2.5 py-1 rounded-full font-bold shadow">ติดตาม</button>
+                    </div>
+                    <p className="text-sm drop-shadow line-clamp-2">{video.caption}</p>
                     <div className="flex items-center gap-2 mt-2 text-xs opacity-90">
                       <Music className="w-3.5 h-3.5 animate-spin" />
                       <span className="truncate">{video.song}</span>
                     </div>
                   </div>
 
-                  <div className="absolute bottom-20 right-3 flex flex-col items-center gap-4 text-white z-10">
-                    <button className="flex flex-col items-center focus:outline-none" onClick={(e) => handleLike(video.id, e)}>
-                      <div className="p-3 bg-black/40 rounded-full backdrop-blur-sm">
-                        <Heart className={`w-7 h-7 ${video.isLiked ? 'text-red-500 fill-red-500' : 'text-white'}`} />
+                  {/* แถบเครื่องมือด้านขวา (ครบเครื่องเหมือน TikTok) */}
+                  <div className="absolute bottom-20 right-3 flex flex-col items-center gap-3 text-white z-30">
+                    <div className="relative">
+                      <img src={video.userAvatar} alt="avatar" className="w-10 h-10 rounded-full border border-white object-cover shadow" />
+                    </div>
+
+                    <button className="flex flex-col items-center focus:outline-none mt-1" onClick={(e) => handleLike(video.id, e)}>
+                      <div className="p-2.5 bg-black/40 rounded-full backdrop-blur-sm">
+                        <Heart className={`w-6 h-6 ${video.isLiked ? 'text-red-500 fill-red-500' : 'text-white'}`} />
                       </div>
-                      <span className="text-xs mt-1 font-medium">{video.likes}</span>
+                      <span className="text-[11px] mt-0.5 font-semibold">{video.likes}</span>
                     </button>
 
                     <button className="flex flex-col items-center focus:outline-none" onClick={(e) => { e.stopPropagation(); setShowComments(true); }}>
-                      <div className="p-3 bg-black/40 rounded-full backdrop-blur-sm">
-                        <MessageCircle className="w-7 h-7 text-white fill-white/20" />
+                      <div className="p-2.5 bg-black/40 rounded-full backdrop-blur-sm">
+                        <MessageCircle className="w-6 h-6 text-white fill-white/20" />
                       </div>
-                      <span className="text-xs mt-1 font-medium">{video.comments}</span>
+                      <span className="text-[11px] mt-0.5 font-semibold">{video.comments}</span>
                     </button>
 
-                    <button className="flex flex-col items-center focus:outline-none" onClick={(e) => e.stopPropagation()}>
-                      <div className="p-3 bg-black/40 rounded-full backdrop-blur-sm">
-                        <Share2 className="w-7 h-7 text-white" />
+                    <button className="flex flex-col items-center focus:outline-none" onClick={(e) => handleSave(video.id, e)}>
+                      <div className="p-2.5 bg-black/40 rounded-full backdrop-blur-sm">
+                        <Bookmark className={`w-6 h-6 ${video.isSaved ? 'text-yellow-400 fill-yellow-400' : 'text-white'}`} />
                       </div>
-                      <span className="text-xs mt-1 font-medium">{video.shares}</span>
+                      <span className="text-[11px] mt-0.5 font-semibold">{video.saves}</span>
                     </button>
+
+                    <button className="flex flex-col items-center focus:outline-none" onClick={(e) => { e.stopPropagation(); setShowShareModal(true); }}>
+                      <div className="p-2.5 bg-black/40 rounded-full backdrop-blur-sm">
+                        <Share2 className="w-6 h-6 text-white" />
+                      </div>
+                      <span className="text-[11px] mt-0.5 font-semibold">{video.shares}</span>
+                    </button>
+
+                    {/* วงกลมเสียงเพลงหมุนๆ ด้านล่างขวา */}
+                    <div className="w-9 h-9 bg-zinc-900 rounded-full border-2 border-zinc-700 flex items-center justify-center animate-spin mt-2">
+                      <Music className="w-4 h-4 text-white" />
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
           )}
 
-          {/* แท็บอัปโหลดวิดีโอจากเครื่อง */}
+          {/* แท็บโพสต์วิดีโอ */}
           {activeTab === 'upload' && (
             <div className="absolute inset-0 bg-white text-gray-900 flex flex-col p-6 overflow-y-auto z-30">
               <h2 className="text-xl font-bold mb-4 text-center mt-2 text-gray-900">โพสต์วิดีโอใหม่</h2>
               <form onSubmit={handleAddVideo} className="flex flex-col gap-3 pb-12">
                 <div>
-                  <label className="text-xs text-gray-600 mb-1 block font-semibold">เลือกไฟล์วิดีโอจากเครื่อง</label>
-                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-red-400 border-dashed rounded-xl cursor-pointer bg-red-50 hover:bg-red-100 transition-colors">
-                    <div className="flex flex-col items-center pt-5 pb-6 px-2 text-center">
-                      <Upload className="w-8 h-8 text-red-600 mb-2" />
-                      <p className="text-xs text-gray-800 font-bold">{pendingVideoUrl ? '✓ เลือกไฟล์วิดีโอสำเร็จแล้ว' : 'คลิกเพื่อเลือกไฟล์วิดีโอ (MP4)'}</p>
-                      <p className="text-[10px] text-gray-500 mt-0.5">ระบบเซฟถาวร รีเฟรชไม่หายแน่นอน</p>
-                    </div>
-                    <input type="file" accept="video/*" onChange={handleFileChange} className="hidden" />
-                  </label>
+                  <label className="text-xs text-gray-600 mb-1 block font-semibold">ลิงก์วิดีโอ (MP4 URL)</label>
+                  <input 
+                    type="url" 
+                    placeholder="https://.../video.mp4 (หรือเว้นว่างเพื่อใช้คลิปตัวอย่าง)" 
+                    value={videoUrlInput}
+                    onChange={(e) => setVideoUrlInput(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-300 rounded-lg p-3 text-xs text-gray-900 focus:outline-none focus:border-red-500"
+                  />
+                  <p className="text-[10px] text-gray-500 mt-1">*เพื่อให้เปิดดูใน LINE ได้อย่างเสถียร แนะนำใส่ลิงก์ MP4 ออนไลน์</p>
                 </div>
-
-                {pendingVideoUrl && (
-                  <div className="w-full h-32 bg-black rounded-lg overflow-hidden border border-gray-300">
-                    <video src={pendingVideoUrl} className="w-full h-full object-contain" controls />
-                  </div>
-                )}
 
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block font-semibold">คำอธิบาย (Caption)</label>
@@ -338,7 +362,7 @@ export default function App() {
                   <label className="text-xs text-gray-600 mb-1 block font-semibold">ชื่อเพลง / เสียงประกอบ</label>
                   <input 
                     type="text" 
-                    placeholder="เสียงต้นฉบับ - Creator" 
+                    placeholder="เสียงต้นฉบับ - Creator Studio" 
                     value={newSong}
                     onChange={(e) => setNewSong(e.target.value)}
                     className="w-full bg-gray-50 border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 focus:outline-none focus:border-red-500"
@@ -440,9 +464,7 @@ export default function App() {
           {/* แท็บโปรไฟล์ */}
           {activeTab === 'profile' && (
             <div className="absolute inset-0 bg-white text-gray-900 flex flex-col items-center pt-12 px-6 overflow-y-auto z-30">
-              <div className="w-20 h-20 bg-gradient-to-tr from-yellow-400 to-red-500 rounded-full flex items-center justify-center text-2xl font-bold text-white mb-3 shadow-lg">
-                TH
-              </div>
+              <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=60" alt="profile" className="w-20 h-20 rounded-full object-cover mb-3 shadow-lg border-2 border-red-500" />
               <h2 className="text-lg font-bold text-gray-900">@my_profile</h2>
               <p className="text-xs text-gray-500 mt-1">ผู้สร้างคอนเทนต์วิดีโอสั้นตัวยง</p>
               
@@ -510,6 +532,28 @@ export default function App() {
                     <Send className="w-4 h-4" />
                   </button>
                 </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal แชร์โซเชียล */}
+          {showShareModal && (
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end justify-center">
+              <div className="bg-white w-full rounded-t-2xl p-5 text-gray-900 shadow-2xl">
+                <div className="flex justify-between items-center mb-4">
+                  <span className="text-sm font-bold">แชร์ไปยังโซเชียล</span>
+                  <button onClick={() => setShowShareModal(false)} className="text-gray-400 font-bold">✕</button>
+                </div>
+                <div className="grid grid-cols-4 gap-4 text-center pb-4">
+                  <button onClick={() => { navigator.clipboard.writeText(window.location.href); alert('คัดลอกลิงก์สำเร็จ นำไปวางแชร์ใน LINE ได้เลย!'); setShowShareModal(false); }} className="flex flex-col items-center gap-1">
+                    <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center text-white font-bold shadow">LINE</div>
+                    <span className="text-[11px]">คัดลอกลิงก์</span>
+                  </button>
+                  <button onClick={() => { alert('บันทึกคลิปลงเครื่องสำเร็จ!'); setShowShareModal(false); }} className="flex flex-col items-center gap-1">
+                    <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold shadow">💾</div>
+                    <span className="text-[11px]">บันทึกวิดีโอ</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}
