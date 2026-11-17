@@ -79,7 +79,7 @@ const INITIAL_PRODUCTS: ProductItem[] = [
 export default function App() {
   const [videos, setVideos] = useState<VideoItem[]>(() => {
     try {
-      const saved = localStorage.getItem('toktak_syntax_fix_v16');
+      const saved = localStorage.getItem('toktak_master_v17');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -112,7 +112,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('toktak_syntax_fix_v16', JSON.stringify(videos));
+      localStorage.setItem('toktak_master_v17', JSON.stringify(videos));
     } catch (e) {
       console.error('Error saving localStorage', e);
     }
