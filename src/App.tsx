@@ -1,445 +1,1354 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Heart, MessageCircle, Share2, Music, Home, Compass, PlusSquare, User, Play, ShoppingBag, Send, Upload, Store, Bookmark, MoreVertical } from 'lucide-react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import {
+  Heart,
+  MessageCircle,
+  Share2,
+  Music,
+  Home,
+  ShoppingBag,
+  Plus,
+  Briefcase,
+  User,
+  Play,
+  Volume2,
+  VolumeX,
+  Upload,
+  Trash2,
+  Bookmark,
+  Search,
+  ShoppingCart,
+  Check,
+  X,
+  Star,
+  Sparkles,
+  Film,
+  Send,
+  CheckCircle2,
+  Edit3
+} from 'lucide-react';
+
+// ============================================================================
+// TYPES & INTERFACES
+// ============================================================================
+
+type TabType = 'home' | 'shop' | 'upload' | 'services' | 'profile';
 
 interface CommentItem {
   id: string;
-  username: string;
+  author: string;
   text: string;
-  time: string;
+  createdAt: string;
 }
 
 interface VideoItem {
   id: string;
-  url: string;
+  url: string; // HTTPS URL, data: URL, หรือ idb://<id> สำหรับวิดีโอที่เก็บใน IndexedDB
+  posterUrl?: string;
   username: string;
-  userAvatar: string;
+  displayName: string;
+  avatarColor: string;
   caption: string;
   song: string;
   likes: number;
-  comments: number;
-  shares: number;
-  saves: number;
   isLiked?: boolean;
   isSaved?: boolean;
-  commentList?: CommentItem[];
-  hasProduct?: boolean;
-  productName?: string;
-  productPrice?: string;
+  comments: CommentItem[];
+  feedCategory: 'foryou' | 'following';
+  linkedProductId?: string;
+  isUserCreated?: boolean;
+  createdAt: number;
 }
 
 interface ProductItem {
   id: string;
   name: string;
-  price: string;
-  sales: string;
+  category: 'แฟชั่น' | 'แก็ดเจ็ต' | 'ของแต่งบ้าน' | 'บิวตี้';
+  price: number;
+  originalPrice?: number;
+  rating: number;
+  soldCount: number;
   image: string;
+  badge?: string;
+  description: string;
 }
 
-const DEFAULT_VIDEOS: VideoItem[] = [
+interface CartItem {
+  product: ProductItem;
+  quantity: number;
+}
+
+interface ServiceItem {
+  id: string;
+  title: string;
+  category: 'ตัดต่อคลิป' | 'รีวิวสินค้า' | 'กราฟิก' | 'ยิงแอด';
+  providerName: string;
+  providerHandle: string;
+  rating: number;
+  reviewsCount: number;
+  price: number;
+  turnaround: string;
+  description: string;
+  highlightTag: string;
+}
+
+interface ProfileInfo {
+  displayName: string;
+  username: string;
+  bio: string;
+}
+
+// ============================================================================
+// STORAGE CONSTANTS & SELF-CONTAINED INDEXEDDB + LOCALSTORAGE HELPERS
+// ============================================================================
+
+const STORAGE_VIDEOS_KEY = 'toktak_light_videos_v1';
+const STORAGE_PROFILE_KEY = 'toktak_light_profile_v1';
+const STORAGE_CART_KEY = 'toktak_light_cart_v1';
+const IDB_NAME = 'toktak_standalone_db';
+const IDB_VERSION = 1;
+const IDB_BLOBS_STORE = 'video_blobs';
+const IDB_META_STORE = 'video_metadata';
+const IDB_META_KEY = 'videos_snapshot';
+
+function openTokTakDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof window === 'undefined' || !('indexedDB' in window)) {
+      reject(new Error('IndexedDB is not supported in this browser'));
+      return;
+    }
+    const request = window.indexedDB.open(IDB_NAME, IDB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(IDB_BLOBS_STORE)) {
+        db.createObjectStore(IDB_BLOBS_STORE);
+      }
+      if (!db.objectStoreNames.contains(IDB_META_STORE)) {
+        db.createObjectStore(IDB_META_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Failed to open IndexedDB'));
+  });
+}
+
+/**
+ * บันทึกไฟล์วิดีโอจริงลง IndexedDB โดยอ่าน ArrayBuffer ออกมาก่อนเปิด Transaction
+ * เพื่อป้องกันปัญหา File reference หมดอายุหลังรีเฟรชหน้าจอบน iOS Safari / Android Chrome
+ */
+async function saveVideoBlobToIDB(videoId: string, fileOrBlob: Blob): Promise<boolean> {
+  try {
+    const buffer = await fileOrBlob.arrayBuffer();
+    const materializedBlob = new Blob([buffer], { type: fileOrBlob.type || 'video/mp4' });
+    const db = await openTokTakDB();
+    return await new Promise<boolean>((resolve) => {
+      const tx = db.transaction(IDB_BLOBS_STORE, 'readwrite');
+      const store = tx.objectStore(IDB_BLOBS_STORE);
+      const req = store.put(materializedBlob, videoId);
+      req.onsuccess = () => resolve(true);
+      req.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function getAllVideoBlobsFromIDB(): Promise<Record<string, Blob>> {
+  try {
+    const db = await openTokTakDB();
+    return await new Promise<Record<string, Blob>>((resolve) => {
+      const map: Record<string, Blob> = {};
+      const tx = db.transaction(IDB_BLOBS_STORE, 'readonly');
+      const store = tx.objectStore(IDB_BLOBS_STORE);
+      const req = store.openCursor();
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (cursor) {
+          if (typeof cursor.key === 'string' && cursor.value instanceof Blob) {
+            map[cursor.key] = cursor.value;
+          }
+          cursor.continue();
+        } else {
+          resolve(map);
+        }
+      };
+      req.onerror = () => resolve(map);
+    });
+  } catch {
+    return {};
+  }
+}
+
+async function deleteVideoBlobFromIDB(videoId: string): Promise<void> {
+  try {
+    const db = await openTokTakDB();
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(IDB_BLOBS_STORE, 'readwrite');
+      const store = tx.objectStore(IDB_BLOBS_STORE);
+      const req = store.delete(videoId);
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+    });
+  } catch {
+    // ignore cleanup errors
+  }
+}
+
+async function saveVideosMetadataToIDB(list: VideoItem[]): Promise<boolean> {
+  try {
+    const db = await openTokTakDB();
+    return await new Promise<boolean>((resolve) => {
+      const tx = db.transaction(IDB_META_STORE, 'readwrite');
+      const store = tx.objectStore(IDB_META_STORE);
+      const req = store.put(list, IDB_META_KEY);
+      req.onsuccess = () => resolve(true);
+      req.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function loadVideosMetadataFromIDB(): Promise<VideoItem[] | null> {
+  try {
+    const db = await openTokTakDB();
+    return await new Promise<VideoItem[] | null>((resolve) => {
+      const tx = db.transaction(IDB_META_STORE, 'readonly');
+      const store = tx.objectStore(IDB_META_STORE);
+      const req = store.get(IDB_META_KEY);
+      req.onsuccess = () => {
+        resolve(Array.isArray(req.result) ? (req.result as VideoItem[]) : null);
+      };
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+function readBlobAsDataUrl(blob: Blob): Promise<string | null> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      resolve(typeof ev.target?.result === 'string' ? ev.target.result : null);
+    };
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(blob);
+  });
+}
+
+function extractVideoPosterThumbnail(videoSrc: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    try {
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'metadata';
+      video.src = videoSrc;
+
+      const timer = window.setTimeout(() => resolve(undefined), 2500);
+
+      video.onloadeddata = () => {
+        try {
+          video.currentTime = Math.min(0.2, (video.duration || 1) * 0.1);
+        } catch {
+          window.clearTimeout(timer);
+          resolve(undefined);
+        }
+      };
+
+      video.onseeked = () => {
+        window.clearTimeout(timer);
+        try {
+          const maxW = 320;
+          const rawW = video.videoWidth || 320;
+          const rawH = video.videoHeight || 568;
+          const scale = Math.min(1, maxW / rawW);
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(rawW * scale));
+          canvas.height = Math.max(1, Math.round(rawH * scale));
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(undefined);
+            return;
+          }
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', 0.65));
+        } catch {
+          resolve(undefined);
+        }
+      };
+
+      video.onerror = () => {
+        window.clearTimeout(timer);
+        resolve(undefined);
+      };
+    } catch {
+      resolve(undefined);
+    }
+  });
+}
+
+function persistVideosSafely(list: VideoItem[]) {
+  // ป้องกันไม่ให้ blob: ชั่วคราวหลุดลง storage โดยคง idb://<id> ไว้เสมอ
+  const safeList = list.map((v) => ({
+    ...v,
+    url: v.url.startsWith('blob:') ? `idb://${v.id}` : v.url
+  }));
+
+  // 1) บันทึกลง IndexedDB แบบเต็มรูปแบบ (ไม่จำกัด 5MB)
+  void saveVideosMetadataToIDB(safeList);
+
+  // 2) บันทึกลง localStorage (บีบอัด poster base64 อัตโนมัติหากเกินโควต้า 5MB)
+  try {
+    localStorage.setItem(STORAGE_VIDEOS_KEY, JSON.stringify(safeList));
+  } catch {
+    try {
+      const compacted = safeList.map((v) => ({
+        ...v,
+        posterUrl: v.posterUrl && v.posterUrl.length > 20000 ? undefined : v.posterUrl,
+        url: v.url.startsWith('data:video') ? `idb://${v.id}` : v.url
+      }));
+      localStorage.setItem(STORAGE_VIDEOS_KEY, JSON.stringify(compacted));
+    } catch {
+      // IndexedDB metadata fallback already saved above
+    }
+  }
+}
+
+// ============================================================================
+// INITIAL DATA (CLEAN STARTER VIDEOS, RECOMMENDED SHOP PRODUCTS, SERVICES)
+// ============================================================================
+
+const INITIAL_PRODUCTS: ProductItem[] = [
   {
-    id: '1',
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4',
-    username: '@my_profile',
-    userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=60',
-    caption: 'น้องหมาวิ่งเล่นในทุ่งหญ้าอย่างมีความสุข 🐶✨ #น้องหมา #สัตว์เลี้ยงน่ารัก',
-    song: 'เสียงต้นฉบับ - Creator Studio',
-    likes: 1250,
-    comments: 48,
-    shares: 12,
-    saves: 35,
-    hasProduct: true,
-    productName: 'อาหารเมุน้องหมาพรีเมียม 1.5kg',
-    productPrice: '฿390',
-    commentList: [
-      { id: 'c1', username: '@user_a', text: 'น่ารักมากๆ เลยครับซื้อจากไหนเนี่ย', time: '1 วันที่แล้ว' }
-    ]
+    id: 'prod-1',
+    name: 'เสื้อยืด Oversize Cotton 100% มินิมอล',
+    category: 'แฟชั่น',
+    price: 299,
+    originalPrice: 450,
+    rating: 4.9,
+    soldCount: 1420,
+    image: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=800&auto=format&fit=crop&q=80',
+    badge: 'ขายดีอันดับ 1',
+    description: 'ผ้าฝ้ายแท้ทอละเอียด ใส่สบายไม่ร้อน ทรงสวยแมตช์ง่ายกับทุกลุคประจำวัน'
   },
   {
-    id: '2',
-    url: 'https://assets.mixkit.co/videos/preview/mixkit-cute-dog-head-tilt-41585-large.mp4',
-    username: '@pet_world',
-    userAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=60',
-    caption: 'เอียงคอสงสัยอะไรอยู่นะเจ้าตัวเล็ก 🐾❤️ #หมาน่ารัก #tiktokpets',
-    song: 'เสียงต้นฉบับ - Pet World',
-    likes: 3420,
-    comments: 120,
-    shares: 85,
-    saves: 112,
-    hasProduct: false,
-    commentList: []
+    id: 'prod-2',
+    name: 'หูฟังไร้สาย ANC Studio White',
+    category: 'แก็ดเจ็ต',
+    price: 890,
+    originalPrice: 1490,
+    rating: 4.8,
+    soldCount: 860,
+    image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&auto=format&fit=crop&q=80',
+    badge: 'ลด 40%',
+    description: 'ตัดเสียงรบกวนรอบข้างได้ดีเยี่ยม แบตเตอรี่ใช้งานต่อเนื่องสูงสุด 30 ชั่วโมง'
+  },
+  {
+    id: 'prod-3',
+    name: 'โคมไฟตั้งโต๊ะมินิมอลไร้สาย LED',
+    category: 'ของแต่งบ้าน',
+    price: 459,
+    originalPrice: 690,
+    rating: 4.9,
+    soldCount: 615,
+    image: 'https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=800&auto=format&fit=crop&q=80',
+    badge: 'สินค้าแนะนำ',
+    description: 'ปรับความสว่างได้ 3 ระดับ แสงอุ่นถนอมสายตา ชาร์จผ่าน USB-C ได้สะดวก'
+  },
+  {
+    id: 'prod-4',
+    name: 'เซรั่มวิตามินซี Bright & Glow 30ml',
+    category: 'บิวตี้',
+    price: 390,
+    originalPrice: 590,
+    rating: 4.7,
+    soldCount: 2150,
+    image: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=800&auto=format&fit=crop&q=80',
+    badge: 'รีวิวแน่น',
+    description: 'เนื้อบางเบาซึมไว ช่วยปรับผิวให้ดูกระจ่างใสเรียบเนียนอย่างเป็นธรรมชาติ'
   }
 ];
 
-const INITIAL_PRODUCTS: ProductItem[] = [
-  { id: 'p1', name: 'อาหารเมุน้องหมาพรีเมียม 1.5kg', price: '฿390', sales: 'ขายแล้ว 1.2พัน ชิ้น', image: 'https://images.unsplash.com/photo-1589924691995-400dc9ecc119?w=300&auto=format&fit=crop&q=60' },
-  { id: 'p2', name: 'เสื้อยืดสุนัขลายแฟชั่นสุดเท่', price: '฿190', sales: 'ขายแล้ว 850 ชิ้น', image: 'https://images.unsplash.com/photo-1583511655857-d19b40a7a54e?w=300&auto=format&fit=crop&q=60' },
-  { id: 'p3', name: 'แชมพูอาบน้ำสูตรอ่อนโยน', price: '฿250', sales: 'ขายแล้ว 540 ชิ้น', image: 'https://images.unsplash.com/photo-1535930891776-0c2dfb7fda1a?w=300&auto=format&fit=crop&q=60' }
+const INITIAL_SERVICES: ServiceItem[] = [
+  {
+    id: 'srv-1',
+    title: 'ตัดต่อคลิปสั้นสไตล์ไวรัล + ใส่ซับเด้ง',
+    category: 'ตัดต่อคลิป',
+    providerName: 'Studio Cut Pro',
+    providerHandle: '@studiocut.th',
+    rating: 4.9,
+    reviewsCount: 184,
+    price: 490,
+    turnaround: 'ส่งงานภายใน 24 ชม.',
+    description: 'ตัดต่อคลิปแนวตั้ง 15-60 วินาที พร้อมจังหวะเพลง ซาวด์เอฟเฟกต์ และซับไตเติลอ่านง่าย',
+    highlightTag: 'ยอดนิยม'
+  },
+  {
+    id: 'srv-2',
+    title: 'ถ่ายคลิปรีวิวสินค้าปักตะกร้า (UGC Creator)',
+    category: 'รีวิวสินค้า',
+    providerName: 'มินนี่ รีวิวของดี',
+    providerHandle: '@minnie.review',
+    rating: 5.0,
+    reviewsCount: 92,
+    price: 950,
+    turnaround: 'ส่งงาน 2-3 วัน',
+    description: 'ถ่ายทำรีวิวจริงด้วยกล้อง 4K แสงธรรมชาติ พร้อมพากย์เสียงและสคริปต์ปิดการขาย',
+    highlightTag: 'การันตีคุณภาพ'
+  },
+  {
+    id: 'srv-3',
+    title: 'ออกแบบปกคลิป & ภาพแบนเนอร์หน้าร้าน',
+    category: 'กราฟิก',
+    providerName: 'Minimal Craft Design',
+    providerHandle: '@minimal.craft',
+    rating: 4.8,
+    reviewsCount: 127,
+    price: 350,
+    turnaround: 'ส่งงานภายใน 1 วัน',
+    description: 'ดีไซน์ภาพปกวิดีโอและแบนเนอร์สินค้าโทนสว่างสะอาดตา ดึงดูดสายตาให้คนหยุดดู',
+    highlightTag: 'คุ้มค่า'
+  },
+  {
+    id: 'srv-4',
+    title: 'วางแผนแคมเปญ & ยิงแอดร้านค้าวิดีโอสั้น',
+    category: 'ยิงแอด',
+    providerName: 'Growth Media Lab',
+    providerHandle: '@growth.medialab',
+    rating: 4.9,
+    reviewsCount: 68,
+    price: 1990,
+    turnaround: 'ดูแลตลอด 14 วัน',
+    description: 'วิเคราะห์กลุ่มเป้าหมาย ตั้งค่าโฆษณา และวัดผล ROAS รายวันเพื่อให้ยอดขายเติบโตจริง',
+    highlightTag: 'สำหรับร้านค้า'
+  }
 ];
+
+const INITIAL_VIDEOS: VideoItem[] = [
+  {
+    id: 'starter-1',
+    url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+    posterUrl: 'https://images.unsplash.com/photo-1490750967868-88aa4486c946?w=800&auto=format&fit=crop&q=80',
+    username: '@minimal_bloom',
+    displayName: 'Minimal Bloom',
+    avatarColor: 'from-rose-400 to-orange-400',
+    caption: 'เช้าวันใหม่สดใสกับโทนสว่างคลีนๆ 🌼✨ แวะดูสินค้าแนะนำในร้านค้าได้เลย',
+    song: 'Morning Breeze (Acoustic) - Studio Sound',
+    likes: 1280,
+    isLiked: false,
+    isSaved: false,
+    comments: [
+      { id: 'c1', author: '@ploy_studio', text: 'ภาพสีสวยละมุนมากเลยค่ะ 🌸', createdAt: '2 ชม.' }
+    ],
+    feedCategory: 'foryou',
+    linkedProductId: 'prod-3',
+    createdAt: 1700000002000
+  },
+  {
+    id: 'starter-2',
+    url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/friday.mp4',
+    posterUrl: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=800&auto=format&fit=crop&q=80',
+    username: '@daily_lifestyle',
+    displayName: 'Daily Lifestyle',
+    avatarColor: 'from-sky-400 to-indigo-500',
+    caption: 'ไอเทมเรียบง่ายที่ใส่ได้ทุกวัน 👕 กดที่ปุ่มสินค้าเพื่อสั่งซื้อได้เลย!',
+    song: 'Lo-Fi Café Chill Beat',
+    likes: 3420,
+    isLiked: false,
+    isSaved: false,
+    comments: [
+      { id: 'c2', author: '@ton_bkk', text: 'สั่งเสื้อไปเมื่อวาน ผ้านุ่มมากครับ', createdAt: '5 ชม.' }
+    ],
+    feedCategory: 'following',
+    linkedProductId: 'prod-1',
+    createdAt: 1700000001000
+  }
+];
+
+const DEFAULT_PROFILE: ProfileInfo = {
+  displayName: 'TokTak Creator',
+  username: '@my_profile',
+  bio: 'สร้างสรรค์คอนเทนต์วิดีโอสั้น & รีวิวของดีโทนมินิมอล ✨'
+};
+
+// ============================================================================
+// MAIN APPLICATION
+// ============================================================================
 
 export default function App() {
   const [videos, setVideos] = useState<VideoItem[]>(() => {
     try {
-      const saved = localStorage.getItem('toktak_master_v17');
+      const saved = localStorage.getItem(STORAGE_VIDEOS_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
       }
-    } catch (e) {
-      console.error('Error loading localStorage', e);
+    } catch {
+      // Fallback to IndexedDB hydration in useEffect
     }
-    return DEFAULT_VIDEOS;
+    return INITIAL_VIDEOS;
   });
 
-  const [products] = useState<ProductItem[]>(INITIAL_PRODUCTS);
+  const [profile, setProfile] = useState<ProfileInfo>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_PROFILE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed.username === 'string') {
+          return { ...DEFAULT_PROFILE, ...parsed };
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return DEFAULT_PROFILE;
+  });
+
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_CART_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+
+  // แมพเก็บ Blob Object URLs ที่คืนค่ามาจาก IndexedDB สำหรับวิดีโอที่ขึ้นต้นด้วย idb://
+  const [hydratedBlobUrls, setHydratedBlobUrls] = useState<Record<string, string>>({});
+
+  // Navigation & UI States
+  const [activeTab, setActiveTab] = useState<TabType>('home');
+  const [feedFilter, setFeedFilter] = useState<'foryou' | 'following'>('foryou');
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
-  const [activeTab, setActiveTab] = useState<'home' | 'upload' | 'profile' | 'services' | 'shop'>('home');
-  
-  const [showComments, setShowComments] = useState(false);
-  const [newCommentText, setNewCommentText] = useState('');
-  const [showCartModal, setShowCartModal] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<{name: string, price: string} | null>(null);
-  const [showShareModal, setShowShareModal] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const [pendingVideoUrl, setPendingVideoUrl] = useState<string>('');
-  const [newCaption, setNewCaption] = useState('');
-  const [newSong, setNewSong] = useState('');
-  const [hasProd, setHasProd] = useState(false);
-  const [prodName, setProdName] = useState('');
-  const [prodPrice, setProdPrice] = useState('');
+  // Modals & Drawers
+  const [commentModalVideoId, setCommentModalVideoId] = useState<string | null>(null);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState<ProductItem | null>(null);
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [selectedService, setSelectedService] = useState<ServiceItem | null>(null);
+  const [serviceNote, setServiceNote] = useState('');
+  const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
+  const [profileDraft, setProfileDraft] = useState<ProfileInfo>(profile);
 
-  const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
+  // Shop & Services Filter States
+  const [shopQuery, setShopQuery] = useState('');
+  const [shopCategory, setShopCategory] = useState<'ทั้งหมด' | ProductItem['category']>('ทั้งหมด');
+  const [serviceCategory, setServiceCategory] = useState<'ทั้งหมด' | ServiceItem['category']>('ทั้งหมด');
+  const [profileTab, setProfileTab] = useState<'mine' | 'liked' | 'saved'>('mine');
 
+  // Upload Form States
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string>('');
+  const [uploadExternalUrl, setUploadExternalUrl] = useState<string>('');
+  const [uploadCaption, setUploadCaption] = useState<string>('');
+  const [uploadSong, setUploadSong] = useState<string>('เสียงต้นฉบับ - TokTak Creator');
+  const [uploadProductId, setUploadProductId] = useState<string>('');
+  const [isSavingUpload, setIsSavingUpload] = useState<boolean>(false);
+
+  const feedScrollRef = useRef<HTMLDivElement | null>(null);
+  const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const videosRef = useRef<VideoItem[]>(videos);
+
+  const showToast = useCallback((message: string) => {
+    setToastMessage(message);
+    window.setTimeout(() => {
+      setToastMessage((prev) => (prev === message ? null : prev));
+    }, 2600);
+  }, []);
+
+  // ซิงค์รายการวิดีโอลง localStorage + IndexedDB ทุกครั้งที่มีการเปลี่ยนแปลง
   useEffect(() => {
-    try {
-      localStorage.setItem('toktak_master_v17', JSON.stringify(videos));
-    } catch (e) {
-      console.error('Error saving localStorage', e);
-    }
+    videosRef.current = videos;
+    persistVideosSafely(videos);
   }, [videos]);
 
   useEffect(() => {
-    videoRefs.current.forEach((video, index) => {
-      if (!video) return;
-      if (index === currentIndex) {
-        video.currentTime = 0;
-        video.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+    try {
+      localStorage.setItem(STORAGE_PROFILE_KEY, JSON.stringify(profile));
+    } catch {
+      // ignore
+    }
+  }, [profile]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_CART_KEY, JSON.stringify(cart));
+    } catch {
+      // ignore
+    }
+  }, [cart]);
+
+  // กู้คืนข้อมูลจาก IndexedDB ทันทีเมื่อเปิดแอป/รีเฟรชหน้าจอ (รวมถึงทั้ง Metadata และไฟล์ Blob)
+  useEffect(() => {
+    let active = true;
+
+    const hydrateFromIndexedDB = async () => {
+      const [blobsMap, idbMetaList] = await Promise.all([
+        getAllVideoBlobsFromIDB(),
+        loadVideosMetadataFromIDB()
+      ]);
+
+      if (!active) return;
+
+      const objectUrlMap: Record<string, string> = {};
+      Object.entries(blobsMap).forEach(([clipId, blob]) => {
+        objectUrlMap[clipId] = URL.createObjectURL(blob);
+      });
+      setHydratedBlobUrls((prev) => ({ ...prev, ...objectUrlMap }));
+
+      if (idbMetaList && idbMetaList.length > 0) {
+        setVideos((prev) => {
+          const prevIds = new Set(prev.map((v) => v.id));
+          const missingInLocalStorage = idbMetaList.filter((v) => !prevIds.has(v.id));
+          const updatedExisting = prev.map((v) => {
+            const match = idbMetaList.find((m) => m.id === v.id);
+            if (!v.posterUrl && match?.posterUrl) {
+              return { ...v, posterUrl: match.posterUrl };
+            }
+            return v;
+          });
+
+          if (missingInLocalStorage.length === 0) {
+            return updatedExisting;
+          }
+
+          const merged = [...missingInLocalStorage, ...updatedExisting].sort(
+            (a, b) => b.createdAt - a.createdAt
+          );
+          return merged;
+        });
+      }
+    };
+
+    void hydrateFromIndexedDB();
+
+    const handleFlushOnHide = () => {
+      persistVideosSafely(videosRef.current);
+    };
+
+    window.addEventListener('pagehide', handleFlushOnHide);
+    window.addEventListener('beforeunload', handleFlushOnHide);
+    return () => {
+      active = false;
+      window.removeEventListener('pagehide', handleFlushOnHide);
+      window.removeEventListener('beforeunload', handleFlushOnHide);
+    };
+  }, []);
+
+  // แปลง idb://<id> ให้เป็น Object URL ที่พร้อมเล่นได้จริงทั้งในฟีดและหน้าโปรไฟล์
+  const resolvedVideos = useMemo<VideoItem[]>(() => {
+    return videos.map((v) => {
+      if (v.url.startsWith('idb://')) {
+        const clipId = v.url.replace('idb://', '');
+        const hydrated = hydratedBlobUrls[clipId];
+        return {
+          ...v,
+          url: hydrated || v.url
+        };
+      }
+      return v;
+    });
+  }, [videos, hydratedBlobUrls]);
+
+  const feedVideos = useMemo<VideoItem[]>(() => {
+    if (feedFilter === 'following') {
+      const followingOnly = resolvedVideos.filter(
+        (v) => v.feedCategory === 'following' || v.isUserCreated
+      );
+      return followingOnly.length > 0 ? followingOnly : resolvedVideos;
+    }
+    return resolvedVideos;
+  }, [resolvedVideos, feedFilter]);
+
+  // ควบคุมการเล่นวิดีโออัตโนมัติเฉพาะคลิปที่กำลังดูอยู่ในหน้าหลัก
+  useEffect(() => {
+    if (activeTab !== 'home') {
+      Object.values(videoRefs.current).forEach((el) => el?.pause());
+      return;
+    }
+
+    const activeVideo = feedVideos[currentIndex];
+    feedVideos.forEach((vid, idx) => {
+      const el = videoRefs.current[vid.id];
+      if (!el) return;
+      el.muted = idx === currentIndex ? isMuted : true;
+
+      if (idx === currentIndex && activeVideo?.id === vid.id && !vid.url.startsWith('idb://')) {
+        el.play()
+          .then(() => {
+            setIsPlaying(true);
+          })
+          .catch(() => {
+            // หากเบราว์เซอร์บล็อก Autoplay แบบมีเสียง ให้สลับเป็นปิดเสียงแล้วเล่นต่ออัตโนมัติ
+            if (!el.muted) {
+              el.muted = true;
+              setIsMuted(true);
+              el.play()
+                .then(() => setIsPlaying(true))
+                .catch(() => setIsPlaying(false));
+            } else {
+              setIsPlaying(false);
+            }
+          });
       } else {
-        video.pause();
+        el.pause();
       }
     });
-    setShowComments(false);
-  }, [currentIndex, videos]);
+  }, [activeTab, currentIndex, feedVideos, isMuted]);
 
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+  const handleFeedScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const container = e.currentTarget;
-    const index = Math.round(container.scrollTop / container.clientHeight);
-    if (index !== currentIndex && index >= 0 && index < videos.length) {
-      setCurrentIndex(index);
+    if (!container.clientHeight) return;
+    const nextIdx = Math.round(container.scrollTop / container.clientHeight);
+    if (nextIdx !== currentIndex && nextIdx >= 0 && nextIdx < feedVideos.length) {
+      setCurrentIndex(nextIdx);
     }
   };
 
-  const togglePlay = (index: number) => {
-    const video = videoRefs.current[index];
-    if (!video) return;
-    if (video.paused) {
-      video.play();
-      setIsPlaying(true);
+  const togglePlayVideo = (videoId: string) => {
+    const el = videoRefs.current[videoId];
+    if (!el) return;
+    if (el.paused) {
+      el.play()
+        .then(() => setIsPlaying(true))
+        .catch(() => setIsPlaying(false));
     } else {
-      video.pause();
+      el.pause();
       setIsPlaying(false);
     }
   };
 
-  const handleLike = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setVideos(videos.map(v => {
-      if (v.id === id) {
-        const isLiked = !v.isLiked;
-        return { ...v, isLiked, likes: isLiked ? v.likes + 1 : v.likes - 1 };
-      }
-      return v;
-    }));
+  const handleToggleLike = (videoId: string) => {
+    setVideos((prev) =>
+      prev.map((v) => {
+        if (v.id !== videoId) return v;
+        const nextLiked = !v.isLiked;
+        return {
+          ...v,
+          isLiked: nextLiked,
+          likes: nextLiked ? v.likes + 1 : Math.max(0, v.likes - 1)
+        };
+      })
+    );
   };
 
-  const handleSave = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setVideos(videos.map(v => {
-      if (v.id === id) {
-        const isSaved = !v.isSaved;
-        return { ...v, isSaved, saves: isSaved ? v.saves + 1 : v.saves - 1 };
+  const handleToggleSave = (videoId: string) => {
+    const target = videos.find((v) => v.id === videoId);
+    setVideos((prev) =>
+      prev.map((v) => (v.id === videoId ? { ...v, isSaved: !v.isSaved } : v))
+    );
+    if (target) {
+      showToast(!target.isSaved ? 'บันทึกวิดีโอลงรายการโปรดแล้ว' : 'นำออกจากรายการที่บันทึกแล้ว');
+    }
+  };
+
+  const handleShareVideo = async (video: VideoItem) => {
+    const shareText = `${video.displayName}: ${video.caption}`;
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(shareText);
       }
-      return v;
-    }));
+      showToast('คัดลอกลิงก์/คำอธิบายคลิปเรียบร้อยแล้ว');
+    } catch {
+      showToast('พร้อมแชร์คลิปนี้แล้ว');
+    }
   };
 
   const handleAddComment = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCommentText.trim()) return;
-
+    if (!commentModalVideoId || !commentDraft.trim()) return;
     const newComment: CommentItem = {
-      id: Date.now().toString(),
-      username: '@my_profile',
-      text: newCommentText.trim(),
-      time: 'เมื่อสักครู่'
+      id: `cmt-${Date.now()}`,
+      author: profile.username,
+      text: commentDraft.trim(),
+      createdAt: 'เมื่อสักครู่'
     };
-
-    setVideos(videos.map((v, idx) => {
-      if (idx === currentIndex) {
-        return {
-          ...v,
-          comments: v.comments + 1,
-          commentList: [newComment, ...(v.commentList || [])]
-        };
-      }
-      return v;
-    }));
-    setNewCommentText('');
+    setVideos((prev) =>
+      prev.map((v) =>
+        v.id === commentModalVideoId
+          ? { ...v, comments: [...v.comments, newComment] }
+          : v
+      )
+    );
+    setCommentDraft('');
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const fileUrl = URL.createObjectURL(file);
-      setPendingVideoUrl(fileUrl);
+    if (!file) return;
+    if (previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    const localPreview = URL.createObjectURL(file);
+    setSelectedFile(file);
+    setPreviewUrl(localPreview);
+    setUploadExternalUrl('');
+    if (!uploadCaption.trim()) {
+      setUploadCaption(file.name.replace(/\.[^/.]+$/, '') + ' #TokTak');
+    }
+    e.target.value = '';
+  };
+
+  const handlePublishVideo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFile && !uploadExternalUrl.trim()) {
+      showToast('กรุณาเลือกไฟล์วิดีโอจากเครื่องหรือระบุลิงก์วิดีโอ');
+      return;
+    }
+
+    setIsSavingUpload(true);
+    const newId = `clip-${Date.now()}`;
+
+    try {
+      let persistedUrl = uploadExternalUrl.trim();
+      let generatedPoster: string | undefined;
+
+      if (selectedFile) {
+        const liveObjectUrl = URL.createObjectURL(selectedFile);
+        generatedPoster = await extractVideoPosterThumbnail(liveObjectUrl);
+
+        // 1) พยายามบันทึกลง IndexedDB เพื่อรองรับไฟล์ขนาดใหญ่ได้แบบถาวรแม้รีเฟรชหน้าจอ
+        const savedToIdb = await saveVideoBlobToIDB(newId, selectedFile);
+
+        if (savedToIdb) {
+          persistedUrl = `idb://${newId}`;
+          setHydratedBlobUrls((prev) => ({ ...prev, [newId]: liveObjectUrl }));
+        } else if (selectedFile.size <= 2.5 * 1024 * 1024) {
+          // 2) Fallback: หากเบราว์เซอร์จำกัด IndexedDB ให้แปลงเป็น Base64 Data URL สำหรับไฟล์เล็ก
+          const dataUrl = await readBlobAsDataUrl(selectedFile);
+          persistedUrl = dataUrl || liveObjectUrl;
+        } else {
+          persistedUrl = liveObjectUrl;
+        }
+      } else if (persistedUrl) {
+        generatedPoster = await extractVideoPosterThumbnail(persistedUrl);
+      }
+
+      const newVideo: VideoItem = {
+        id: newId,
+        url: persistedUrl,
+        posterUrl: generatedPoster,
+        username: profile.username,
+        displayName: profile.displayName,
+        avatarColor: 'from-rose-500 to-pink-500',
+        caption: uploadCaption.trim() || 'แชร์ช่วงเวลาดีๆ บน TokTak ✨ #TokTak',
+        song: uploadSong.trim() || 'เสียงต้นฉบับ - TokTak Creator',
+        likes: 1,
+        isLiked: true,
+        isSaved: false,
+        comments: [],
+        feedCategory: 'foryou',
+        linkedProductId: uploadProductId || undefined,
+        isUserCreated: true,
+        createdAt: Date.now()
+      };
+
+      setVideos((prev) => {
+        const next = [newVideo, ...prev];
+        persistVideosSafely(next);
+        return next;
+      });
+
+      // รีเซ็ตฟอร์มและพากลับไปเล่นคลิปใหม่ทันทีที่หน้าแรก
+      if (previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      setSelectedFile(null);
+      setPreviewUrl('');
+      setUploadExternalUrl('');
+      setUploadCaption('');
+      setUploadProductId('');
+      setFeedFilter('foryou');
+      setCurrentIndex(0);
+      setActiveTab('home');
+      requestAnimationFrame(() => {
+        feedScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+      });
+      showToast('โพสต์และบันทึกวิดีโอถาวรในเครื่องเรียบร้อยแล้ว');
+    } finally {
+      setIsSavingUpload(false);
     }
   };
 
-  const handleAddVideo = (e: React.FormEvent) => {
-    e.preventDefault();
-    const finalUrl = pendingVideoUrl || 'https://assets.mixkit.co/videos/preview/mixkit-dog-running-in-the-grass-41586-large.mp4';
-
-    const newItem: VideoItem = {
-      id: Date.now().toString(),
-      url: finalUrl,
-      username: '@my_profile',
-      userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=60',
-      caption: newCaption.trim() || 'วิดีโอใหม่ของฉัน 🚀',
-      song: newSong.trim() || 'เสียงต้นฉบับ - Creator Studio',
-      likes: 1,
-      comments: 0,
-      shares: 0,
-      saves: 0,
-      hasProduct: hasProd,
-      productName: prodName.trim() || 'สินค้าแนะนำ',
-      productPrice: prodPrice.trim() || '฿199',
-      commentList: []
-    };
-
-    setVideos([newItem, ...videos]);
-    setPendingVideoUrl('');
-    setNewCaption('');
-    setNewSong('');
-    setHasProd(false);
-    setProdName('');
-    setProdPrice('');
-    setActiveTab('home');
-    setCurrentIndex(0);
+  const handleDeleteUserVideo = (videoId: string) => {
+    setVideos((prev) => {
+      const next = prev.filter((v) => v.id !== videoId);
+      persistVideosSafely(next);
+      return next;
+    });
+    setHydratedBlobUrls((prev) => {
+      if (!prev[videoId]) return prev;
+      URL.revokeObjectURL(prev[videoId]);
+      const copy = { ...prev };
+      delete copy[videoId];
+      return copy;
+    });
+    void deleteVideoBlobFromIDB(videoId);
+    showToast('ลบวิดีโอเรียบร้อยแล้ว');
   };
 
+  const handleJumpToVideoFromProfile = (videoId: string) => {
+    setFeedFilter('foryou');
+    setActiveTab('home');
+    const targetIdx = resolvedVideos.findIndex((v) => v.id === videoId);
+    if (targetIdx >= 0) {
+      setCurrentIndex(targetIdx);
+      requestAnimationFrame(() => {
+        const container = feedScrollRef.current;
+        if (container) {
+          container.scrollTo({
+            top: targetIdx * container.clientHeight,
+            behavior: 'auto'
+          });
+        }
+      });
+    }
+  };
+
+  // Cart Handlers
+  const handleAddToCart = (product: ProductItem) => {
+    setCart((prev) => {
+      const existing = prev.find((c) => c.product.id === product.id);
+      if (existing) {
+        return prev.map((c) =>
+          c.product.id === product.id ? { ...c, quantity: c.quantity + 1 } : c
+        );
+      }
+      return [{ product, quantity: 1 }, ...prev];
+    });
+    showToast(`เพิ่ม "${product.name}" ลงตะกร้าแล้ว`);
+  };
+
+  const handleUpdateCartQty = (productId: string, delta: number) => {
+    setCart((prev) =>
+      prev
+        .map((item) =>
+          item.product.id === productId
+            ? { ...item, quantity: item.quantity + delta }
+            : item
+        )
+        .filter((item) => item.quantity > 0)
+    );
+  };
+
+  const totalCartItems = useMemo(
+    () => cart.reduce((sum, item) => sum + item.quantity, 0),
+    [cart]
+  );
+
+  const totalCartPrice = useMemo(
+    () => cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0),
+    [cart]
+  );
+
+  // Filtered Lists for Shop, Services, and Profile
+  const filteredProducts = useMemo(() => {
+    return INITIAL_PRODUCTS.filter((p) => {
+      const matchCat = shopCategory === 'ทั้งหมด' || p.category === shopCategory;
+      const matchQuery =
+        !shopQuery.trim() ||
+        p.name.toLowerCase().includes(shopQuery.trim().toLowerCase()) ||
+        p.category.toLowerCase().includes(shopQuery.trim().toLowerCase());
+      return matchCat && matchQuery;
+    });
+  }, [shopCategory, shopQuery]);
+
+  const filteredServices = useMemo(() => {
+    if (serviceCategory === 'ทั้งหมด') return INITIAL_SERVICES;
+    return INITIAL_SERVICES.filter((s) => s.category === serviceCategory);
+  }, [serviceCategory]);
+
+  const myUploadedVideos = useMemo(
+    () => resolvedVideos.filter((v) => v.isUserCreated || v.username === profile.username),
+    [resolvedVideos, profile.username]
+  );
+
+  const profileGridVideos = useMemo(() => {
+    if (profileTab === 'liked') return resolvedVideos.filter((v) => v.isLiked);
+    if (profileTab === 'saved') return resolvedVideos.filter((v) => v.isSaved);
+    return myUploadedVideos.length > 0 ? myUploadedVideos : resolvedVideos;
+  }, [profileTab, resolvedVideos, myUploadedVideos]);
+
+  const totalLikesCount = useMemo(
+    () => resolvedVideos.reduce((sum, v) => sum + v.likes, 0),
+    [resolvedVideos]
+  );
+
+  const activeCommentVideo = useMemo(
+    () => resolvedVideos.find((v) => v.id === commentModalVideoId) || null,
+    [resolvedVideos, commentModalVideoId]
+  );
+
   return (
-    <div className="flex justify-center items-center bg-gray-100 h-[100dvh] w-screen overflow-hidden select-none">
-      <div className="relative w-full max-w-md h-full bg-white flex flex-col overflow-hidden shadow-2xl border-x border-gray-200">
-        
-        <div className="flex-1 relative overflow-hidden bg-black">
-          
+    <div className="fixed inset-0 h-[100dvh] w-screen overflow-hidden bg-slate-100 flex justify-center items-center font-sans text-slate-900 select-none">
+      {/* Mobile App Frame (Clean Light Mode Surface) */}
+      <div className="relative w-full max-w-md h-[100dvh] bg-white sm:border-x sm:border-slate-200 flex flex-col overflow-hidden shadow-xl">
+        {/* Global Toast Feedback */}
+        {toastMessage && (
+          <div className="absolute top-14 inset-x-4 z-50 flex justify-center pointer-events-none">
+            <div className="bg-white/95 backdrop-blur-md text-slate-900 border border-slate-200 shadow-lg rounded-full px-4 py-2 text-xs font-semibold flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+              <span>{toastMessage}</span>
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================ */}
+        {/* MAIN CONTENT AREA                                                */}
+        {/* ================================================================ */}
+        <main className="flex-1 min-h-0 relative overflow-hidden bg-white">
+          {/* -------------------------------------------------------------- */}
+          {/* TAB 1: HOME FEED                                               */}
+          {/* -------------------------------------------------------------- */}
           {activeTab === 'home' && (
-            <div className="h-full w-full overflow-y-scroll snap-y snap-mandatory no-scrollbar" onScroll={handleScroll}>
-              {videos.map((video, index) => (
-                <div key={video.id} className="relative w-full h-full snap-start flex items-center justify-center bg-black" onClick={() => togglePlay(index)}>
-                  <video
-                    ref={(el) => { videoRefs.current[index] = el; }}
-                    src={video.url}
-                    className="w-full h-full object-cover"
-                    loop
-                    playsInline
-                    autoPlay
-                    muted={false}
-                  />
-
-                  {!isPlaying && index === currentIndex && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
-                      <Play className="w-16 h-16 text-white opacity-80 fill-white" />
-                    </div>
-                  )}
-
-                  {video.hasProduct && (
-                    <div className="absolute top-12 left-4 z-30">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedProduct({ name: video.productName || 'สินค้า', price: video.productPrice || '฿0' });
-                          setShowCartModal(true);
-                        }}
-                        className="flex items-center gap-1.5 bg-white/95 backdrop-blur-md border border-red-500 text-gray-900 px-3 py-1.5 rounded-full shadow-lg"
-                      >
-                        <ShoppingBag className="w-4 h-4 text-red-600 animate-bounce" />
-                        <span className="text-xs font-bold truncate max-w-[140px]">{video.productName}</span>
-                        <span className="text-xs bg-red-600 px-1.5 py-0.5 rounded text-white font-bold">{video.productPrice}</span>
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="absolute bottom-16 left-4 right-20 text-white z-30 pointer-events-none">
-                    <div className="flex items-center gap-2 mb-2 pointer-events-auto">
-                      <img src={video.userAvatar} alt="avatar" className="w-9 h-9 rounded-full border-2 border-white object-cover shadow" />
-                      <span className="font-bold text-sm drop-shadow">{video.username}</span>
-                      <button onClick={(e) => { e.stopPropagation(); alert('ติดตามสำเร็จ!'); }} className="bg-red-600 text-white text-[10px] px-2.5 py-1 rounded-full font-bold shadow">ติดตาม</button>
-                    </div>
-                    <p className="text-sm drop-shadow line-clamp-2">{video.caption}</p>
-                    <div className="flex items-center gap-2 mt-2 text-xs opacity-90">
-                      <Music className="w-3.5 h-3.5 animate-spin" />
-                      <span className="truncate">{video.song}</span>
-                    </div>
-                  </div>
-
-                  <div className="absolute bottom-20 right-3 flex flex-col items-center gap-3 text-white z-30">
-                    <div className="relative">
-                      <img src={video.userAvatar} alt="avatar" className="w-10 h-10 rounded-full border border-white object-cover shadow" />
-                    </div>
-
-                    <button className="flex flex-col items-center focus:outline-none mt-1" onClick={(e) => handleLike(video.id, e)}>
-                      <div className="p-2.5 bg-black/40 rounded-full backdrop-blur-sm">
-                        <Heart className={`w-6 h-6 ${video.isLiked ? 'text-red-500 fill-red-500' : 'text-white'}`} />
-                      </div>
-                      <span className="text-[11px] mt-0.5 font-semibold">{video.likes}</span>
-                    </button>
-
-                    <button className="flex flex-col items-center focus:outline-none" onClick={(e) => { e.stopPropagation(); setShowComments(true); }}>
-                      <div className="p-2.5 bg-black/40 rounded-full backdrop-blur-sm">
-                        <MessageCircle className="w-6 h-6 text-white fill-white/20" />
-                      </div>
-                      <span className="text-[11px] mt-0.5 font-semibold">{video.comments}</span>
-                    </button>
-
-                    <button className="flex flex-col items-center focus:outline-none" onClick={(e) => handleSave(video.id, e)}>
-                      <div className="p-2.5 bg-black/40 rounded-full backdrop-blur-sm">
-                        <Bookmark className={`w-6 h-6 ${video.isSaved ? 'text-yellow-400 fill-yellow-400' : 'text-white'}`} />
-                      </div>
-                      <span className="text-[11px] mt-0.5 font-semibold">{video.saves}</span>
-                    </button>
-
-                    <button className="flex flex-col items-center focus:outline-none" onClick={(e) => { e.stopPropagation(); setShowShareModal(true); }}>
-                      <div className="p-2.5 bg-black/40 rounded-full backdrop-blur-sm">
-                        <Share2 className="w-6 h-6 text-white" />
-                      </div>
-                      <span className="text-[11px] mt-0.5 font-semibold">{video.shares}</span>
-                    </button>
-
-                    <div className="w-9 h-9 bg-zinc-900 rounded-full border-2 border-zinc-700 flex items-center justify-center animate-spin mt-2">
-                      <Music className="w-4 h-4 text-white" />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {activeTab === 'upload' && (
-            <div className="absolute inset-0 bg-white text-gray-900 flex flex-col p-6 overflow-y-auto z-30">
-              <h2 className="text-xl font-bold mb-4 text-center mt-2 text-gray-900">อัปโหลดวิดีโอจากเครื่อง</h2>
-              <form onSubmit={handleAddVideo} className="flex flex-col gap-3 pb-12">
-                <div>
-                  <label className="text-xs text-gray-600 mb-1 block font-semibold">เลือกไฟล์วิดีโอ (MP4)</label>
-                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-red-400 border-dashed rounded-xl cursor-pointer bg-red-50 hover:bg-red-100 transition-colors">
-                    <div className="flex flex-col items-center pt-5 pb-6 px-2 text-center">
-                      <Upload className="w-8 h-8 text-red-600 mb-2" />
-                      <p className="text-xs text-gray-800 font-bold">{pendingVideoUrl ? '✓ เลือกไฟล์วิดีโอสำเร็จแล้ว' : 'คลิกเพื่อเลือกไฟล์วิดีโอจากคอมพิวเตอร์'}</p>
-                      <p className="text-[10px] text-gray-500 mt-0.5">รองรับไฟล์วิดีโอทุกขนาด</p>
-                    </div>
-                    <input type="file" accept="video/*" onChange={handleFileChange} className="hidden" />
-                  </label>
+            <div className="relative w-full h-full bg-slate-950 overflow-hidden">
+              {/* Light Mode Floating Header Bar */}
+              <div className="absolute top-3 inset-x-3 z-30 flex items-center justify-between pointer-events-none">
+                <div className="w-9" />
+                <div className="pointer-events-auto inline-flex items-center bg-white/90 backdrop-blur-md border border-slate-200/90 rounded-full p-1 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFeedFilter('following');
+                      setCurrentIndex(0);
+                    }}
+                    className={`px-3.5 py-1 rounded-full text-xs font-bold transition-colors ${
+                      feedFilter === 'following'
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    กำลังติดตาม
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFeedFilter('foryou');
+                      setCurrentIndex(0);
+                    }}
+                    className={`px-3.5 py-1 rounded-full text-xs font-bold transition-colors ${
+                      feedFilter === 'foryou'
+                        ? 'bg-rose-500 text-white'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    สำหรับคุณ
+                  </button>
                 </div>
 
-                {pendingVideoUrl && (
-                  <div className="w-full h-32 bg-black rounded-lg overflow-hidden border border-gray-300">
-                    <video src={pendingVideoUrl} className="w-full h-full object-contain" controls />
-                  </div>
-                )}
-
-                <div>
-                  <label className="text-xs text-gray-600 mb-1 block font-semibold">คำอธิบาย (Caption)</label>
-                  <textarea 
-                    placeholder="เขียนแคปชันของคุณที่นี่..." 
-                    value={newCaption}
-                    onChange={(e) => setNewCaption(e.target.value)}
-                    className="w-full bg-gray-50 border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 focus:outline-none focus:border-red-500 h-16 resize-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-600 mb-1 block font-semibold">ชื่อเพลง / เสียงประกอบ</label>
-                  <input 
-                    type="text" 
-                    placeholder="เสียงต้นฉบับ - Creator Studio" 
-                    value={newSong}
-                    onChange={(e) => setNewSong(e.target.value)}
-                    className="w-full bg-gray-50 border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 focus:outline-none focus:border-red-500"
-                  />
-                </div>
-
-                <div className="bg-gray-50 p-3 rounded-xl border border-gray-300">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold flex items-center gap-1.5 text-gray-800">
-                      <ShoppingBag className="w-3.5 h-3.5 text-red-600" /> พ่วงสินค้าในร้านค้า
-                    </span>
-                    <input 
-                      type="checkbox" 
-                      checked={hasProd} 
-                      onChange={(e) => setHasProd(e.target.checked)}
-                      className="w-4 h-4 accent-red-600"
-                    />
-                  </div>
-                  {hasProd && (
-                    <div className="flex flex-col gap-2 mt-2">
-                      <input 
-                        type="text" 
-                        placeholder="ชื่อสินค้า เช่น เสื้อยืดสุดเท่" 
-                        value={prodName}
-                        onChange={(e) => setProdName(e.target.value)}
-                        className="w-full bg-white border border-gray-300 rounded-lg p-2 text-xs text-gray-900"
-                      />
-                      <input 
-                        type="text" 
-                        placeholder="ราคา เช่น ฿290" 
-                        value={prodPrice}
-                        onChange={(e) => setProdPrice(e.target.value)}
-                        className="w-full bg-white border border-gray-300 rounded-lg p-2 text-xs text-gray-900"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg transition-colors mt-1 shadow-lg text-sm">
-                  โพสต์วิดีโอทันที
+                <button
+                  type="button"
+                  onClick={() => setIsMuted((prev) => !prev)}
+                  aria-label={isMuted ? 'เปิดเสียง' : 'ปิดเสียง'}
+                  className="pointer-events-auto w-9 h-9 rounded-full bg-white/90 backdrop-blur-md border border-slate-200 text-slate-800 flex items-center justify-center shadow-sm active:scale-90 transition"
+                >
+                  {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                 </button>
-              </form>
+              </div>
+
+              {/* Snap-Scroll Vertical Video Feed */}
+              <div
+                ref={feedScrollRef}
+                onScroll={handleFeedScroll}
+                className="w-full h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar"
+                style={{ WebkitOverflowScrolling: 'touch' }}
+              >
+                {feedVideos.map((vid, idx) => {
+                  const isHydrating = vid.url.startsWith('idb://');
+                  const linkedProduct = vid.linkedProductId
+                    ? INITIAL_PRODUCTS.find((p) => p.id === vid.linkedProductId)
+                    : undefined;
+
+                  return (
+                    <div
+                      key={vid.id}
+                      onClick={() => togglePlayVideo(vid.id)}
+                      className="relative w-full h-full snap-start snap-always shrink-0 bg-slate-950 flex items-center justify-center overflow-hidden"
+                    >
+                      {vid.posterUrl && (
+                        <img
+                          src={vid.posterUrl}
+                          alt={vid.caption}
+                          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                        />
+                      )}
+
+                      {!isHydrating ? (
+                        <video
+                          ref={(el) => {
+                            videoRefs.current[vid.id] = el;
+                          }}
+                          src={vid.url}
+                          poster={vid.posterUrl}
+                          autoPlay={idx === currentIndex}
+                          loop
+                          playsInline
+                          muted={isMuted || idx !== currentIndex}
+                          preload="auto"
+                          className="relative z-10 w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="relative z-10 flex flex-col items-center justify-center text-white gap-2">
+                          <Film className="w-8 h-8 text-rose-400 animate-pulse" />
+                          <span className="text-xs font-medium">กำลังโหลดวิดีโอจากเครื่อง...</span>
+                        </div>
+                      )}
+
+                      {!isPlaying && idx === currentIndex && !isHydrating && (
+                        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/25 pointer-events-none">
+                          <div className="w-16 h-16 rounded-full bg-white/90 text-slate-900 flex items-center justify-center shadow-lg">
+                            <Play className="w-7 h-7 fill-slate-900 ml-0.5" />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Subtle Bottom Legibility Scrim */}
+                      <div className="absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/75 via-black/30 to-transparent pointer-events-none z-20" />
+
+                      {/* Bottom Left Video Info */}
+                      <div className="absolute left-4 right-20 bottom-5 z-30 text-white space-y-2 pointer-events-none">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold drop-shadow">{vid.displayName}</span>
+                          <span className="text-xs text-white/80 drop-shadow">{vid.username}</span>
+                        </div>
+                        <p className="text-xs sm:text-sm leading-snug line-clamp-2 drop-shadow">
+                          {vid.caption}
+                        </p>
+                        <div className="flex items-center gap-1.5 text-[11px] text-white/90">
+                          <Music className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate max-w-[210px]">{vid.song}</span>
+                        </div>
+
+                        {linkedProduct && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedProduct(linkedProduct);
+                            }}
+                            className="pointer-events-auto inline-flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-900 rounded-full pl-2 pr-3 py-1.5 text-xs font-bold shadow-md border border-slate-200 active:scale-95 transition"
+                          >
+                            <span className="w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center">
+                              <ShoppingBag className="w-3 h-3" />
+                            </span>
+                            <span className="truncate max-w-[140px]">{linkedProduct.name}</span>
+                            <span className="text-rose-600">฿{linkedProduct.price}</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Right Side Action Rail */}
+                      <div className="absolute right-3 bottom-5 z-30 flex flex-col items-center gap-4">
+                        <div
+                          className={`w-11 h-11 rounded-full bg-gradient-to-tr ${vid.avatarColor} border-2 border-white shadow-md flex items-center justify-center text-white font-bold text-sm`}
+                        >
+                          {vid.displayName.slice(0, 2).toUpperCase()}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleLike(vid.id);
+                          }}
+                          className="flex flex-col items-center gap-1 active:scale-90 transition"
+                        >
+                          <div className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-sm shadow-md flex items-center justify-center">
+                            <Heart
+                              className={`w-5 h-5 ${
+                                vid.isLiked
+                                  ? 'fill-rose-500 text-rose-500'
+                                  : 'text-slate-800'
+                              }`}
+                            />
+                          </div>
+                          <span className="text-[11px] font-bold text-white drop-shadow">
+                            {vid.likes.toLocaleString()}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCommentModalVideoId(vid.id);
+                          }}
+                          className="flex flex-col items-center gap-1 active:scale-90 transition"
+                        >
+                          <div className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-sm shadow-md flex items-center justify-center text-slate-800">
+                            <MessageCircle className="w-5 h-5" />
+                          </div>
+                          <span className="text-[11px] font-bold text-white drop-shadow">
+                            {vid.comments.length}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleSave(vid.id);
+                          }}
+                          className="flex flex-col items-center gap-1 active:scale-90 transition"
+                        >
+                          <div className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-sm shadow-md flex items-center justify-center">
+                            <Bookmark
+                              className={`w-5 h-5 ${
+                                vid.isSaved
+                                  ? 'fill-amber-400 text-amber-500'
+                                  : 'text-slate-800'
+                              }`}
+                            />
+                          </div>
+                          <span className="text-[11px] font-bold text-white drop-shadow">
+                            {vid.isSaved ? 'บันทึกแล้ว' : 'บันทึก'}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleShareVideo(vid);
+                          }}
+                          className="flex flex-col items-center gap-1 active:scale-90 transition"
+                        >
+                          <div className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-sm shadow-md flex items-center justify-center text-slate-800">
+                            <Share2 className="w-5 h-5" />
+                          </div>
+                          <span className="text-[11px] font-bold text-white drop-shadow">แชร์</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
+          {/* -------------------------------------------------------------- */}
+          {/* TAB 2: SHOP (LIGHT MODE RECOMMENDED PRODUCTS)                  */}
+          {/* -------------------------------------------------------------- */}
           {activeTab === 'shop' && (
-            <div className="absolute inset-0 bg-white text-gray-900 flex flex-col p-4 overflow-y-auto z-30">
-              <h2 className="text-lg font-bold mb-3 text-center mt-2 flex items-center justify-center gap-2 text-gray-900">
-                <Store className="w-5 h-5 text-red-600" /> ร้านค้าแนะนำ
-              </h2>
-              <div className="grid grid-cols-2 gap-3 pb-12">
-                {products.map((item) => (
-                  <div key={item.id} className="bg-gray-50 rounded-xl overflow-hidden border border-gray-200 shadow-sm flex flex-col justify-between">
-                    <img src={item.image} alt={item.name} className="w-full h-28 object-cover" />
-                    <div className="p-2.5 flex flex-col flex-1 justify-between">
+            <div className="w-full h-full bg-slate-50 flex flex-col overflow-hidden">
+              <header className="bg-white border-b border-slate-200 px-4 pt-4 pb-3 space-y-3 shrink-0">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-lg font-extrabold text-slate-900">ร้านค้าแนะนำ</h1>
+                    <p className="text-xs text-slate-500">คัดสรรสินค้าคุณภาพดีจากครีเอเตอร์</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsCartOpen(true)}
+                    className="relative inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition"
+                  >
+                    <ShoppingCart className="w-4 h-4" />
+                    <span>ตะกร้า</span>
+                    {totalCartItems > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] leading-none">
+                        {totalCartItems}
+                      </span>
+                    )}
+                  </button>
+                </div>
+
+                {/* Search Input */}
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={shopQuery}
+                    onChange={(e) => setShopQuery(e.target.value)}
+                    placeholder="ค้นหาสินค้าแนะนำ..."
+                    className="w-full bg-slate-100 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-rose-400"
+                  />
+                </div>
+
+                {/* Category Tabs */}
+                <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
+                  {(['ทั้งหมด', 'แฟชั่น', 'แก็ดเจ็ต', 'ของแต่งบ้าน', 'บิวตี้'] as const).map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setShopCategory(cat)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition ${
+                        shopCategory === cat
+                          ? 'bg-slate-900 text-white'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </header>
+
+              <div className="flex-1 overflow-y-auto p-3 grid grid-cols-2 gap-3 content-start">
+                {filteredProducts.map((product) => (
+                  <div
+                    key={product.id}
+                    onClick={() => setSelectedProduct(product)}
+                    className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs hover:shadow-md transition cursor-pointer flex flex-col"
+                  >
+                    <div className="relative aspect-square bg-slate-100 overflow-hidden">
+                      <img
+                        src={product.image}
+                        alt={product.name}
+                        className="w-full h-full object-cover"
+                      />
+                      {product.badge && (
+                        <span className="absolute top-2 left-2 bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-xs">
+                          {product.badge}
+                        </span>
+                      )}
+                    </div>
+                    <div className="p-2.5 flex-1 flex flex-col justify-between gap-2">
                       <div>
-                        <h3 className="font-bold text-xs line-clamp-2 text-gray-900">{item.name}</h3>
-                        <p className="text-[10px] text-gray-500 mt-0.5">{item.sales}</p>
+                        <p className="text-xs font-bold text-slate-900 line-clamp-2 leading-snug">
+                          {product.name}
+                        </p>
+                        <div className="flex items-center gap-1 mt-1 text-[10px] text-slate-500">
+                          <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                          <span className="font-semibold text-slate-700">{product.rating}</span>
+                          <span>• ขายแล้ว {product.soldCount.toLocaleString()}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-200">
-                        <span className="text-red-600 font-bold text-sm">{item.price}</span>
-                        <button 
-                          onClick={() => {
-                            setSelectedProduct({ name: item.name, price: item.price });
-                            setShowCartModal(true);
+
+                      <div className="flex items-center justify-between pt-1">
+                        <div>
+                          <span className="text-sm font-extrabold text-rose-600">
+                            ฿{product.price}
+                          </span>
+                          {product.originalPrice && (
+                            <span className="text-[10px] text-slate-400 line-through ml-1">
+                              ฿{product.originalPrice}
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAddToCart(product);
                           }}
-                          className="bg-red-600 hover:bg-red-700 text-white text-[10px] px-2.5 py-1 rounded-md font-bold shadow"
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold active:scale-95 transition"
                         >
-                          ดูสินค้า
+                          + ตะกร้า
                         </button>
                       </div>
                     </div>
@@ -449,169 +1358,828 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === 'services' && (
-            <div className="absolute inset-0 bg-white text-gray-900 flex flex-col p-6 overflow-y-auto z-30">
-              <h2 className="text-xl font-bold mb-4 text-center mt-2 text-gray-900">ศูนย์รวมบริการและเมนู</h2>
-              <div className="grid grid-cols-2 gap-3 pb-12">
-                <button onClick={() => setActiveTab('shop')} className="bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center text-center hover:bg-gray-100 transition-colors">
-                  <Store className="w-8 h-8 text-red-600 mb-2" />
-                  <h3 className="font-bold text-sm text-gray-900">ร้านค้าแนะนำ</h3>
-                  <p className="text-xs text-gray-500 mt-1">เลือกชมสินค้าทั้งหมด</p>
-                </button>
-                <button onClick={() => setActiveTab('home')} className="bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center text-center hover:bg-gray-100 transition-colors">
-                  <Compass className="w-8 h-8 text-blue-600 mb-2" />
-                  <h3 className="font-bold text-sm text-gray-900">สำรวจฟีด</h3>
-                  <p className="text-xs text-gray-500 mt-1">ดูวิดีโอทั้งหมด</p>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'profile' && (
-            <div className="absolute inset-0 bg-white text-gray-900 flex flex-col items-center pt-12 px-6 overflow-y-auto z-30">
-              <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=60" alt="profile" className="w-20 h-20 rounded-full object-cover mb-3 shadow-lg border-2 border-red-500" />
-              <h2 className="text-lg font-bold text-gray-900">@my_profile</h2>
-              <p className="text-xs text-gray-500 mt-1">ผู้สร้างคอนเทนต์วิดีโอสั้นตัวยง</p>
-              
-              <div className="flex gap-6 mt-6 text-center">
-                <div>
-                  <span className="block font-bold text-base text-gray-900">{videos.length}</span>
-                  <span className="text-xs text-gray-500">โพสต์</span>
-                </div>
-                <div>
-                  <span className="block font-bold text-base text-gray-900">1.5M</span>
-                  <span className="text-xs text-gray-500">ผู้ติดตาม</span>
-                </div>
-                <div>
-                  <span className="block font-bold text-base text-gray-900">3.2M</span>
-                  <span className="text-xs text-gray-500">ถูกใจ</span>
-                </div>
-              </div>
-
-              <div className="w-full mt-8 border-t border-gray-200 pt-4 pb-12">
-                <h3 className="text-xs font-bold text-gray-700 mb-3">วิดีโอทั้งหมดของคุณ ({videos.length})</h3>
-                <div className="grid grid-cols-3 gap-1">
-                  {videos.map((v) => (
-                    <div key={v.id} className="aspect-[9/16] bg-gray-200 relative overflow-hidden rounded">
-                      <video src={v.url} className="w-full h-full object-cover pointer-events-none" muted />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {showComments && (
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex flex-col justify-end">
-              <div className="bg-white w-full h-[60%] rounded-t-2xl flex flex-col text-gray-900 border-t border-gray-200 shadow-2xl">
-                <div className="flex justify-between items-center p-4 border-b border-gray-200">
-                  <span className="text-sm font-bold">ความคิดเห็น ({videos[currentIndex]?.comments || 0})</span>
-                  <button onClick={() => setShowComments(false)} className="text-gray-500 font-bold px-2">✕</button>
-                </div>
-                
-                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-                  {videos[currentIndex]?.commentList?.map((c) => (
-                    <div key={c.id} className="flex gap-3">
-                      <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-xs font-bold text-gray-700 shrink-0">
-                        {c.username.substring(1, 3).toUpperCase()}
-                      </div>
-                      <div>
-                        <span className="text-xs text-gray-500 font-semibold">{c.username}</span>
-                        <p className="text-sm mt-0.5 text-gray-900">{c.text}</p>
-                        <span className="text-[10px] text-gray-400 mt-1 block">{c.time}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <form onSubmit={handleAddComment} className="p-3 bg-gray-50 border-t border-gray-200 flex gap-2">
-                  <input 
-                    type="text" 
-                    placeholder="แสดงความคิดเห็น..." 
-                    value={newCommentText}
-                    onChange={(e) => setNewCommentText(e.target.value)}
-                    className="flex-1 bg-white border border-gray-300 rounded-full px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-red-500"
-                  />
-                  <button type="submit" className="bg-red-600 text-white p-2 rounded-full hover:bg-red-700 shadow">
-                    <Send className="w-4 h-4" />
-                  </button>
-                </form>
-              </div>
-            </div>
-          )}
-
-          {showShareModal && (
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end justify-center">
-              <div className="bg-white w-full rounded-t-2xl p-5 text-gray-900 shadow-2xl">
-                <div className="flex justify-between items-center mb-4">
-                  <span className="text-sm font-bold">แชร์ไปยังโซเชียล</span>
-                  <button onClick={() => setShowShareModal(false)} className="text-gray-400 font-bold">✕</button>
-                </div>
-                <div className="grid grid-cols-4 gap-4 text-center pb-4">
-                  <button onClick={() => { navigator.clipboard.writeText(window.location.href); alert('คัดลอกลิงก์สำเร็จ นำไปวางแชร์ใน LINE ได้เลย!'); setShowShareModal(false); }} className="flex flex-col items-center gap-1">
-                    <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center text-white font-bold shadow">LINE</div>
-                    <span className="text-[11px]">คัดลอกลิงก์</span>
-                  </button>
-                  <button onClick={() => { alert('บันทึกคลิปลงเครื่องสำเร็จ!'); setShowShareModal(false); }} className="flex flex-col items-center gap-1">
-                    <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold shadow">💾</div>
-                    <span className="text-[11px]">บันทึกวิดีโอ</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {showCartModal && selectedProduct && (
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-white border border-gray-200 w-full max-w-xs rounded-2xl p-5 text-gray-900 shadow-2xl">
-                <div className="flex justify-between items-center mb-4">
-                  <span className="text-sm font-bold flex items-center gap-1.5 text-red-600">
-                    <Store className="w-4 h-4" /> รายละเอียดสินค้า
-                  </span>
-                  <button onClick={() => setShowCartModal(false)} className="text-gray-400 font-bold">✕</button>
-                </div>
-                <div className="bg-gray-50 p-3 rounded-xl mb-4 border border-gray-200">
-                  <p className="font-bold text-sm text-gray-900">{selectedProduct.name}</p>
-                  <p className="text-red-600 font-bold text-base mt-1">{selectedProduct.price}</p>
-                </div>
-                <button 
-                  onClick={() => { alert('สั่งซื้อสินค้าสำเร็จ!'); setShowCartModal(false); }}
-                  className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded-xl text-sm transition-colors shadow"
+          {/* -------------------------------------------------------------- */}
+          {/* TAB 3: UPLOAD VIDEO (+) WITH LOCAL INDEXEDDB PERSISTENCE       */}
+          {/* -------------------------------------------------------------- */}
+          {activeTab === 'upload' && (
+            <div className="w-full h-full bg-white flex flex-col overflow-hidden">
+              <header className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('home')}
+                  className="text-xs font-semibold text-slate-500 hover:text-slate-900"
                 >
-                  ยืนยันการสั่งซื้อ
+                  ยกเลิก
                 </button>
+                <h1 className="text-sm font-extrabold text-slate-900">สร้างวิดีโอใหม่</h1>
+                <div className="w-10" />
+              </header>
+
+              <form
+                onSubmit={handlePublishVideo}
+                className="flex-1 overflow-y-auto p-4 space-y-4"
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="video/*"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+
+                {/* Video File Picker / Live Preview */}
+                {previewUrl || uploadExternalUrl ? (
+                  <div className="relative rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 aspect-[9/12] max-h-64 mx-auto flex items-center justify-center">
+                    <video
+                      src={previewUrl || uploadExternalUrl}
+                      controls
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (previewUrl.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
+                        setSelectedFile(null);
+                        setPreviewUrl('');
+                        setUploadExternalUrl('');
+                      }}
+                      className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full bg-white/95 text-slate-800 border border-slate-200 shadow-sm flex items-center justify-center"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                    {selectedFile && (
+                      <div className="absolute bottom-2.5 left-2.5 bg-white/95 border border-slate-200 px-2.5 py-1 rounded-full text-[10px] font-semibold text-slate-700 shadow-xs">
+                        {selectedFile.name} ({(selectedFile.size / (1024 * 1024)).toFixed(1)} MB)
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full border-2 border-dashed border-slate-300 hover:border-rose-400 bg-slate-50 hover:bg-rose-50/40 rounded-2xl py-8 px-4 flex flex-col items-center justify-center gap-2.5 transition cursor-pointer"
+                  >
+                    <div className="w-12 h-12 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-sm">
+                      <Upload className="w-5 h-5" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-bold text-slate-900">
+                        เลือกไฟล์วิดีโอจากเครื่องของคุณ
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        รองรับ MP4, MOV, WebM • บันทึกถาวรลงเครื่องไม่มีหายเมื่อรีเฟรช
+                      </p>
+                    </div>
+                  </button>
+                )}
+
+                {!selectedFile && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      หรือวางลิงก์วิดีโอ (MP4 URL)
+                    </label>
+                    <input
+                      type="url"
+                      value={uploadExternalUrl}
+                      onChange={(e) => setUploadExternalUrl(e.target.value)}
+                      placeholder="https://example.com/clip.mp4"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:bg-white focus:border-rose-400"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    คำอธิบายคลิป (Caption)
+                  </label>
+                  <textarea
+                    value={uploadCaption}
+                    onChange={(e) => setUploadCaption(e.target.value)}
+                    placeholder="เล่าเรื่องราวหรือรีวิวสินค้าของคุณ..."
+                    rows={3}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:bg-white focus:border-rose-400 resize-none"
+                  />
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {['#TokTak', '#รีวิวของดี', '#ของมันต้องมี', '#มินิมอล'].map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() =>
+                          setUploadCaption((prev) =>
+                            prev.includes(tag) ? prev : `${prev ? prev + ' ' : ''}${tag}`
+                          )
+                        }
+                        className="px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium transition"
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    เพลงประกอบ
+                  </label>
+                  <input
+                    type="text"
+                    value={uploadSong}
+                    onChange={(e) => setUploadSong(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:bg-white focus:border-rose-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    ปักตะกร้าสินค้าแนะนำ (ถ้ามี)
+                  </label>
+                  <select
+                    value={uploadProductId}
+                    onChange={(e) => setUploadProductId(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:bg-white focus:border-rose-400"
+                  >
+                    <option value="">ไม่ระบุสินค้า</option>
+                    {INITIAL_PRODUCTS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} (฿{p.price})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSavingUpload}
+                  className="w-full bg-rose-500 hover:bg-rose-600 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm shadow-sm active:scale-[0.99] transition"
+                >
+                  {isSavingUpload ? 'กำลังบันทึกวิดีโอลงเครื่อง...' : 'โพสต์วิดีโอขึ้นฟีดทันที'}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* -------------------------------------------------------------- */}
+          {/* TAB 4: SERVICES (LIGHT MODE CREATOR & SHOP SERVICES)           */}
+          {/* -------------------------------------------------------------- */}
+          {activeTab === 'services' && (
+            <div className="w-full h-full bg-slate-50 flex flex-col overflow-hidden">
+              <header className="bg-white border-b border-slate-200 px-4 pt-4 pb-3 space-y-3 shrink-0">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-lg font-extrabold text-slate-900">ศูนย์บริการครีเอเตอร์</h1>
+                    <p className="text-xs text-slate-500">
+                      ตัวช่วยปั้นช่อง ตัดต่อ รีวิว และโปรโมทร้านค้า
+                    </p>
+                  </div>
+                  <div className="w-9 h-9 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+                  {(['ทั้งหมด', 'ตัดต่อคลิป', 'รีวิวสินค้า', 'กราฟิก', 'ยิงแอด'] as const).map(
+                    (cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setServiceCategory(cat)}
+                        className={`px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition ${
+                          serviceCategory === cat
+                            ? 'bg-slate-900 text-white'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    )
+                  )}
+                </div>
+              </header>
+
+              <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
+                {filteredServices.map((srv) => (
+                  <div
+                    key={srv.id}
+                    className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 border border-rose-100 mb-1.5">
+                          {srv.category} • {srv.highlightTag}
+                        </span>
+                        <h2 className="text-sm font-bold text-slate-900 leading-snug">
+                          {srv.title}
+                        </h2>
+                      </div>
+                      <span className="text-sm font-extrabold text-rose-600 shrink-0">
+                        ฿{srv.price.toLocaleString()}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-slate-600 leading-relaxed">{srv.description}</p>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                      <div className="text-[11px] text-slate-500">
+                        <span className="font-bold text-slate-800">{srv.providerName}</span>
+                        <span className="mx-1.5">•</span>
+                        <span className="inline-flex items-center gap-0.5 text-amber-600 font-semibold">
+                          <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                          {srv.rating} ({srv.reviewsCount})
+                        </span>
+                        <span className="block text-[10px] text-slate-400 mt-0.5">
+                          {srv.turnaround}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedService(srv);
+                          setServiceNote('');
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold active:scale-95 transition"
+                      >
+                        ติดต่อจองคิว
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
-        </div>
+          {/* -------------------------------------------------------------- */}
+          {/* TAB 5: PROFILE (ME) - SHOWS PERSISTED UPLOADED CLIPS           */}
+          {/* -------------------------------------------------------------- */}
+          {activeTab === 'profile' && (
+            <div className="w-full h-full bg-white flex flex-col overflow-y-auto">
+              <div className="px-5 pt-6 pb-4 flex flex-col items-center text-center border-b border-slate-100">
+                <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-rose-500 to-amber-400 p-0.5 shadow-sm">
+                  <div className="w-full h-full rounded-full bg-white flex items-center justify-center text-xl font-extrabold text-rose-600">
+                    {profile.displayName.slice(0, 2).toUpperCase()}
+                  </div>
+                </div>
+                <h1 className="text-base font-extrabold text-slate-900 mt-3">
+                  {profile.displayName}
+                </h1>
+                <p className="text-xs text-slate-500">{profile.username}</p>
+                <p className="text-xs text-slate-700 mt-2 max-w-xs leading-relaxed">
+                  {profile.bio}
+                </p>
 
-        <div className="h-14 bg-white border-t border-gray-200 flex items-center justify-around px-2 z-40 shrink-0 shadow-lg">
-          <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'home' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
-            <Home className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">หน้าหลัก</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProfileDraft(profile);
+                    setIsEditProfileOpen(true);
+                  }}
+                  className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>แก้ไขโปรไฟล์</span>
+                </button>
+
+                {/* Profile Stats */}
+                <div className="grid grid-cols-3 gap-6 mt-5 w-full max-w-xs">
+                  <div>
+                    <p className="text-base font-extrabold text-slate-900">
+                      {resolvedVideos.length}
+                    </p>
+                    <p className="text-[11px] text-slate-500">วิดีโอทั้งหมด</p>
+                  </div>
+                  <div>
+                    <p className="text-base font-extrabold text-slate-900">12.4K</p>
+                    <p className="text-[11px] text-slate-500">ผู้ติดตาม</p>
+                  </div>
+                  <div>
+                    <p className="text-base font-extrabold text-slate-900">
+                      {totalLikesCount.toLocaleString()}
+                    </p>
+                    <p className="text-[11px] text-slate-500">ถูกใจรวม</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Profile Tabs */}
+              <div className="grid grid-cols-3 border-b border-slate-200 bg-white sticky top-0 z-10">
+                <button
+                  type="button"
+                  onClick={() => setProfileTab('mine')}
+                  className={`py-2.5 text-xs font-bold border-b-2 transition ${
+                    profileTab === 'mine'
+                      ? 'border-slate-900 text-slate-900'
+                      : 'border-transparent text-slate-400'
+                  }`}
+                >
+                  วิดีโอ ({myUploadedVideos.length > 0 ? myUploadedVideos.length : resolvedVideos.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProfileTab('liked')}
+                  className={`py-2.5 text-xs font-bold border-b-2 transition ${
+                    profileTab === 'liked'
+                      ? 'border-slate-900 text-slate-900'
+                      : 'border-transparent text-slate-400'
+                  }`}
+                >
+                  ถูกใจ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProfileTab('saved')}
+                  className={`py-2.5 text-xs font-bold border-b-2 transition ${
+                    profileTab === 'saved'
+                      ? 'border-slate-900 text-slate-900'
+                      : 'border-transparent text-slate-400'
+                  }`}
+                >
+                  ที่บันทึก
+                </button>
+              </div>
+
+              {/* 3-Column Video Grid */}
+              {profileGridVideos.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center py-12 px-6 text-center text-slate-400">
+                  <Film className="w-8 h-8 mb-2 text-slate-300" />
+                  <p className="text-xs font-semibold text-slate-500">ยังไม่มีวิดีโอในหมวดนี้</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-0.5 p-0.5 pb-6">
+                  {profileGridVideos.map((vid) => {
+                    const isHydrating = vid.url.startsWith('idb://');
+                    return (
+                      <div
+                        key={vid.id}
+                        onClick={() => handleJumpToVideoFromProfile(vid.id)}
+                        className="relative aspect-[9/16] bg-slate-100 overflow-hidden cursor-pointer group"
+                      >
+                        {vid.posterUrl && (
+                          <img
+                            src={vid.posterUrl}
+                            alt={vid.caption}
+                            className="absolute inset-0 w-full h-full object-cover"
+                          />
+                        )}
+                        {!isHydrating && (
+                          <video
+                            src={vid.url}
+                            poster={vid.posterUrl}
+                            muted
+                            playsInline
+                            preload="metadata"
+                            className="relative z-10 w-full h-full object-cover"
+                          />
+                        )}
+                        <div className="absolute inset-x-0 bottom-0 p-1.5 bg-gradient-to-t from-black/70 to-transparent z-20 flex items-center justify-between text-white text-[10px] font-semibold">
+                          <span className="inline-flex items-center gap-0.5">
+                            <Play className="w-2.5 h-2.5 fill-white" />
+                            {vid.likes}
+                          </span>
+                        </div>
+                        {vid.isUserCreated && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteUserVideo(vid.id);
+                            }}
+                            title="ลบวิดีโอนี้"
+                            className="absolute top-1.5 right-1.5 z-30 w-6 h-6 rounded-full bg-white/90 hover:bg-rose-500 hover:text-white text-slate-700 flex items-center justify-center shadow-sm transition"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </main>
+
+        {/* ================================================================ */}
+        {/* BOTTOM TAB BAR (LIGHT MODE - FIXED AT BOTTOM)                    */}
+        {/* 5 ปุ่ม: หน้าหลัก | ร้านค้า | ปุ่มบวก (+) | บริการ | ฉัน            */}
+        {/* ================================================================ */}
+        <nav className="h-16 bg-white border-t border-slate-200 px-1 pb-[env(safe-area-inset-bottom)] flex items-center justify-around shrink-0 z-30">
+          <button
+            type="button"
+            onClick={() => setActiveTab('home')}
+            className={`flex-1 flex flex-col items-center justify-center py-1 transition-colors ${
+              activeTab === 'home' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            <Home className={`w-5 h-5 ${activeTab === 'home' ? 'stroke-[2.5]' : 'stroke-[2]'}`} />
+            <span className={`text-[10px] mt-0.5 ${activeTab === 'home' ? 'font-extrabold' : 'font-medium'}`}>
+              หน้าหลัก
+            </span>
           </button>
 
-          <button onClick={() => setActiveTab('shop')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'shop' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
-            <Store className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">ร้านค้า</span>
+          <button
+            type="button"
+            onClick={() => setActiveTab('shop')}
+            className={`relative flex-1 flex flex-col items-center justify-center py-1 transition-colors ${
+              activeTab === 'shop' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            <ShoppingBag className={`w-5 h-5 ${activeTab === 'shop' ? 'stroke-[2.5]' : 'stroke-[2]'}`} />
+            <span className={`text-[10px] mt-0.5 ${activeTab === 'shop' ? 'font-extrabold' : 'font-medium'}`}>
+              ร้านค้า
+            </span>
+            {totalCartItems > 0 && (
+              <span className="absolute top-0.5 right-3.5 min-w-4 h-4 px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
+                {totalCartItems}
+              </span>
+            )}
           </button>
 
-          <button onClick={() => setActiveTab('upload')} className="flex items-center justify-center w-10 h-7 bg-red-600 rounded-md text-white hover:bg-red-700 transition-colors shadow">
-            <PlusSquare className="w-5 h-5" />
+          {/* Center Plus (+) Button */}
+          <div className="flex-1 flex items-center justify-center">
+            <button
+              type="button"
+              onClick={() => setActiveTab('upload')}
+              aria-label="อัปโหลดวิดีโอใหม่"
+              className="relative w-12 h-8 flex items-center justify-center active:scale-90 transition-transform"
+            >
+              <span className="absolute inset-0 bg-cyan-400 rounded-xl -translate-x-0.5" />
+              <span className="absolute inset-0 bg-rose-500 rounded-xl translate-x-0.5" />
+              <span className="relative w-10 h-8 bg-slate-900 text-white rounded-xl flex items-center justify-center shadow-xs">
+                <Plus className="w-5 h-5 stroke-[2.8]" />
+              </span>
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('services')}
+            className={`flex-1 flex flex-col items-center justify-center py-1 transition-colors ${
+              activeTab === 'services' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            <Briefcase className={`w-5 h-5 ${activeTab === 'services' ? 'stroke-[2.5]' : 'stroke-[2]'}`} />
+            <span className={`text-[10px] mt-0.5 ${activeTab === 'services' ? 'font-extrabold' : 'font-medium'}`}>
+              บริการ
+            </span>
           </button>
 
-          <button onClick={() => setActiveTab('services')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'services' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
-            <Compass className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">บริการ</span>
+          <button
+            type="button"
+            onClick={() => setActiveTab('profile')}
+            className={`flex-1 flex flex-col items-center justify-center py-1 transition-colors ${
+              activeTab === 'profile' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            <User className={`w-5 h-5 ${activeTab === 'profile' ? 'stroke-[2.5]' : 'stroke-[2]'}`} />
+            <span className={`text-[10px] mt-0.5 ${activeTab === 'profile' ? 'font-extrabold' : 'font-medium'}`}>
+              ฉัน
+            </span>
           </button>
+        </nav>
 
-          <button onClick={() => setActiveTab('profile')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'profile' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
-            <User className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">ฉัน</span>
-          </button>
-        </div>
+        {/* ================================================================ */}
+        {/* MODALS & DRAWERS (LIGHT MODE)                                    */}
+        {/* ================================================================ */}
 
+        {/* Comment Drawer */}
+        {activeCommentVideo && (
+          <div
+            onClick={() => setCommentModalVideoId(null)}
+            className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[2px] flex items-end"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full bg-white rounded-t-3xl max-h-[70%] flex flex-col overflow-hidden shadow-2xl"
+            >
+              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                <span className="text-xs font-extrabold text-slate-900">
+                  ความคิดเห็น ({activeCommentVideo.comments.length})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCommentModalVideoId(null)}
+                  className="p-1 rounded-full hover:bg-slate-100 text-slate-500"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {activeCommentVideo.comments.length === 0 ? (
+                  <p className="text-center text-xs text-slate-400 py-8">
+                    ยังไม่มีความคิดเห็น เป็นคนแรกที่คอมเมนต์เลย!
+                  </p>
+                ) : (
+                  activeCommentVideo.comments.map((c) => (
+                    <div key={c.id} className="flex items-start gap-2.5">
+                      <div className="w-7 h-7 rounded-full bg-slate-100 text-slate-700 font-bold text-[10px] flex items-center justify-center shrink-0">
+                        {c.author.replace('@', '').slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-[11px] font-bold text-slate-800">
+                          {c.author}{' '}
+                          <span className="font-normal text-slate-400 ml-1">{c.createdAt}</span>
+                        </p>
+                        <p className="text-xs text-slate-700 mt-0.5">{c.text}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <form
+                onSubmit={handleAddComment}
+                className="p-3 border-t border-slate-100 flex items-center gap-2 bg-slate-50"
+              >
+                <input
+                  type="text"
+                  value={commentDraft}
+                  onChange={(e) => setCommentDraft(e.target.value)}
+                  placeholder="พิมพ์ความคิดเห็นของคุณ..."
+                  className="flex-1 bg-white border border-slate-200 rounded-full px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-rose-400"
+                />
+                <button
+                  type="submit"
+                  className="w-9 h-9 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center shrink-0"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Product Detail Modal */}
+        {selectedProduct && (
+          <div
+            onClick={() => setSelectedProduct(null)}
+            className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[2px] flex items-end"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full bg-white rounded-t-3xl overflow-hidden shadow-2xl"
+            >
+              <div className="relative h-56 bg-slate-100">
+                <img
+                  src={selectedProduct.image}
+                  alt={selectedProduct.name}
+                  className="w-full h-full object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => setSelectedProduct(null)}
+                  className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/95 text-slate-800 flex items-center justify-center shadow"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">
+                      {selectedProduct.category}
+                    </span>
+                    <h3 className="text-base font-extrabold text-slate-900 mt-1">
+                      {selectedProduct.name}
+                    </h3>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-lg font-extrabold text-rose-600">฿{selectedProduct.price}</p>
+                    {selectedProduct.originalPrice && (
+                      <p className="text-xs text-slate-400 line-through">
+                        ฿{selectedProduct.originalPrice}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  {selectedProduct.description}
+                </p>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleAddToCart(selectedProduct);
+                      setSelectedProduct(null);
+                    }}
+                    className="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl text-xs transition"
+                  >
+                    เพิ่มลงตะกร้าสินค้า
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Shopping Cart Modal */}
+        {isCartOpen && (
+          <div
+            onClick={() => setIsCartOpen(false)}
+            className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[2px] flex items-end"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full bg-white rounded-t-3xl max-h-[75%] flex flex-col overflow-hidden shadow-2xl"
+            >
+              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                <span className="text-sm font-extrabold text-slate-900">
+                  ตะกร้าสินค้า ({totalCartItems})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsCartOpen(false)}
+                  className="p-1 rounded-full hover:bg-slate-100 text-slate-500"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {cart.length === 0 ? (
+                  <p className="text-center text-xs text-slate-400 py-8">
+                    ยังไม่มีสินค้าในตะกร้า เลือกดูสินค้าแนะนำได้เลย!
+                  </p>
+                ) : (
+                  cart.map((item) => (
+                    <div
+                      key={item.product.id}
+                      className="flex items-center gap-3 p-2.5 rounded-2xl bg-slate-50 border border-slate-200"
+                    >
+                      <img
+                        src={item.product.image}
+                        alt={item.product.name}
+                        className="w-14 h-14 rounded-xl object-cover shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-slate-900 truncate">
+                          {item.product.name}
+                        </p>
+                        <p className="text-xs font-extrabold text-rose-600 mt-0.5">
+                          ฿{item.product.price * item.quantity}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateCartQty(item.product.id, -1)}
+                          className="w-6 h-6 rounded-lg bg-white border border-slate-200 text-slate-700 font-bold text-xs"
+                        >
+                          -
+                        </button>
+                        <span className="text-xs font-bold w-5 text-center">{item.quantity}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateCartQty(item.product.id, 1)}
+                          className="w-6 h-6 rounded-lg bg-white border border-slate-200 text-slate-700 font-bold text-xs"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              {cart.length > 0 && (
+                <div className="p-4 border-t border-slate-100 bg-white space-y-2.5">
+                  <div className="flex items-center justify-between text-sm font-extrabold">
+                    <span className="text-slate-600">ยอดรวมทั้งหมด</span>
+                    <span className="text-rose-600">฿{totalCartPrice.toLocaleString()}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCart([]);
+                      setIsCartOpen(false);
+                      showToast('สั่งซื้อสินค้าเรียบร้อยแล้ว! ขอบคุณที่ใช้บริการ');
+                    }}
+                    className="w-full bg-rose-500 hover:bg-rose-600 text-white font-bold py-3 rounded-xl text-xs transition"
+                  >
+                    ยืนยันคำสั่งซื้อ
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Service Booking Modal */}
+        {selectedService && (
+          <div
+            onClick={() => setSelectedService(null)}
+            className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[2px] flex items-end"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full bg-white rounded-t-3xl p-4 space-y-3 shadow-2xl"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-extrabold text-slate-900">ติดต่อจองคิวบริการ</h3>
+                <button
+                  type="button"
+                  onClick={() => setSelectedService(null)}
+                  className="p-1 rounded-full hover:bg-slate-100 text-slate-500"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200">
+                <p className="text-xs font-bold text-slate-900">{selectedService.title}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  โดย {selectedService.providerName} • ฿{selectedService.price.toLocaleString()}
+                </p>
+              </div>
+              <textarea
+                value={serviceNote}
+                onChange={(e) => setServiceNote(e.target.value)}
+                rows={3}
+                placeholder="ระบุรายละเอียดงานที่ต้องการให้ครีเอเตอร์ช่วยดูแล..."
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-900 focus:outline-none focus:bg-white focus:border-rose-400 resize-none"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedService(null);
+                  setServiceNote('');
+                  showToast('ส่งคำขอจองบริการเรียบร้อยแล้ว ทีมงานจะติดต่อกลับเร็วๆ นี้');
+                }}
+                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-1.5"
+              >
+                <Check className="w-4 h-4" />
+                <span>ยืนยันส่งคำขอจองบริการ</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Profile Modal */}
+        {isEditProfileOpen && (
+          <div
+            onClick={() => setIsEditProfileOpen(false)}
+            className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full bg-white rounded-3xl p-5 space-y-3 shadow-2xl border border-slate-200"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-extrabold text-slate-900">แก้ไขโปรไฟล์</h3>
+                <button
+                  type="button"
+                  onClick={() => setIsEditProfileOpen(false)}
+                  className="p-1 rounded-full hover:bg-slate-100 text-slate-500"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                  ชื่อที่แสดง
+                </label>
+                <input
+                  type="text"
+                  value={profileDraft.displayName}
+                  onChange={(e) =>
+                    setProfileDraft((prev) => ({ ...prev, displayName: e.target.value }))
+                  }
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-rose-400"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                  ชื่อผู้ใช้ (Handle)
+                </label>
+                <input
+                  type="text"
+                  value={profileDraft.username}
+                  onChange={(e) =>
+                    setProfileDraft((prev) => ({ ...prev, username: e.target.value }))
+                  }
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-rose-400"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-slate-600 block mb-1">คำแนะนำตัว</label>
+                <textarea
+                  rows={2}
+                  value={profileDraft.bio}
+                  onChange={(e) => setProfileDraft((prev) => ({ ...prev, bio: e.target.value }))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-rose-400 resize-none"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setProfile(profileDraft);
+                  setIsEditProfileOpen(false);
+                  showToast('อัปเดตข้อมูลโปรไฟล์แล้ว');
+                }}
+                className="w-full bg-rose-500 hover:bg-rose-600 text-white font-bold py-2.5 rounded-xl text-xs"
+              >
+                บันทึกการเปลี่ยนแปลง
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
