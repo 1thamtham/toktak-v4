@@ -35,7 +35,6 @@ interface ProductItem {
   image: string;
 }
 
-// 📌 คลังวิดีโอหลักประจำระบบ (เปิดเล่นได้ทันที เสถียร 100%)
 const DEFAULT_VIDEOS: VideoItem[] = [
   {
     id: '1',
@@ -80,7 +79,7 @@ const INITIAL_PRODUCTS: ProductItem[] = [
 export default function App() {
   const [videos, setVideos] = useState<VideoItem[]>(() => {
     try {
-      const saved = localStorage.getItem('toktak_file_upload_v15');
+      const saved = localStorage.getItem('toktak_syntax_fix_v16');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -102,7 +101,6 @@ export default function App() {
   const [selectedProduct, setSelectedProduct] = useState<{name: string, price: string} | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
 
-  // ฟอร์มสำหรับอัปโหลดไฟล์จากเครื่อง
   const [pendingVideoUrl, setPendingVideoUrl] = useState<string>('');
   const [newCaption, setNewCaption] = useState('');
   const [newSong, setNewSong] = useState('');
@@ -114,7 +112,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('toktak_file_upload_v15', JSON.stringify(videos));
+      localStorage.setItem('toktak_syntax_fix_v16', JSON.stringify(videos));
     } catch (e) {
       console.error('Error saving localStorage', e);
     }
@@ -199,7 +197,6 @@ export default function App() {
     setNewCommentText('');
   };
 
-  // ฟังก์ชันเลือกไฟล์จากเครื่องคอมพิวเตอร์หรือมือถือ
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -246,7 +243,6 @@ export default function App() {
         
         <div className="flex-1 relative overflow-hidden bg-black">
           
-          {/* แท็บหน้าหลัก (Home Feed) */}
           {activeTab === 'home' && (
             <div className="h-full w-full overflow-y-scroll snap-y snap-mandatory no-scrollbar" onScroll={handleScroll}>
               {videos.map((video, index) => (
@@ -267,7 +263,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* แถบสินค้าพ่วงด้านบน */}
                   {video.hasProduct && (
                     <div className="absolute top-12 left-4 z-30">
                       <button 
@@ -285,7 +280,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* รายละเอียดด้านล่าง (โปรไฟล์ + แคปชัน + เสียงเพลง) */}
                   <div className="absolute bottom-16 left-4 right-20 text-white z-30 pointer-events-none">
                     <div className="flex items-center gap-2 mb-2 pointer-events-auto">
                       <img src={video.userAvatar} alt="avatar" className="w-9 h-9 rounded-full border-2 border-white object-cover shadow" />
@@ -299,7 +293,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* แถบเครื่องมือด้านขวา (ครบเครื่องเหมือน TikTok) */}
                   <div className="absolute bottom-20 right-3 flex flex-col items-center gap-3 text-white z-30">
                     <div className="relative">
                       <img src={video.userAvatar} alt="avatar" className="w-10 h-10 rounded-full border border-white object-cover shadow" />
@@ -333,7 +326,6 @@ export default function App() {
                       <span className="text-[11px] mt-0.5 font-semibold">{video.shares}</span>
                     </button>
 
-                    {/* วงกลมเสียงเพลงหมุนๆ ด้านล่างขวา */}
                     <div className="w-9 h-9 bg-zinc-900 rounded-full border-2 border-zinc-700 flex items-center justify-center animate-spin mt-2">
                       <Music className="w-4 h-4 text-white" />
                     </div>
@@ -343,7 +335,6 @@ export default function App() {
             </div>
           )}
 
-          {/* แท็บอัปโหลดวิดีโอจากเครื่อง */}
           {activeTab === 'upload' && (
             <div className="absolute inset-0 bg-white text-gray-900 flex flex-col p-6 overflow-y-auto z-30">
               <h2 className="text-xl font-bold mb-4 text-center mt-2 text-gray-900">อัปโหลดวิดีโอจากเครื่อง</h2>
@@ -353,7 +344,7 @@ export default function App() {
                   <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-red-400 border-dashed rounded-xl cursor-pointer bg-red-50 hover:bg-red-100 transition-colors">
                     <div className="flex flex-col items-center pt-5 pb-6 px-2 text-center">
                       <Upload className="w-8 h-8 text-red-600 mb-2" />
-                      <p className="text-xs text-gray-800 font-bold">{pendingVideoUrl ? '✓ เลือกไฟล์วิดีโอสำเร็จแล้ว' : 'คลิกเพื่อเลือกไฟล์วิดีโอจากเครื่องคอมพิวเตอร์'}</p>
+                      <p className="text-xs text-gray-800 font-bold">{pendingVideoUrl ? '✓ เลือกไฟล์วิดีโอสำเร็จแล้ว' : 'คลิกเพื่อเลือกไฟล์วิดีโอจากคอมพิวเตอร์'}</p>
                       <p className="text-[10px] text-gray-500 mt-0.5">รองรับไฟล์วิดีโอทุกขนาด</p>
                     </div>
                     <input type="file" accept="video/*" onChange={handleFileChange} className="hidden" />
@@ -425,7 +416,6 @@ export default function App() {
             </div>
           )}
 
-          {/* แท็บหน้าร้านค้า */}
           {activeTab === 'shop' && (
             <div className="absolute inset-0 bg-white text-gray-900 flex flex-col p-4 overflow-y-auto z-30">
               <h2 className="text-lg font-bold mb-3 text-center mt-2 flex items-center justify-center gap-2 text-gray-900">
@@ -459,7 +449,6 @@ export default function App() {
             </div>
           )}
 
-          {/* แท็บหน้าบริการ */}
           {activeTab === 'services' && (
             <div className="absolute inset-0 bg-white text-gray-900 flex flex-col p-6 overflow-y-auto z-30">
               <h2 className="text-xl font-bold mb-4 text-center mt-2 text-gray-900">ศูนย์รวมบริการและเมนู</h2>
@@ -478,7 +467,6 @@ export default function App() {
             </div>
           )}
 
-          {/* แท็บโปรไฟล์ */}
           {activeTab === 'profile' && (
             <div className="absolute inset-0 bg-white text-gray-900 flex flex-col items-center pt-12 px-6 overflow-y-auto z-30">
               <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=60" alt="profile" className="w-20 h-20 rounded-full object-cover mb-3 shadow-lg border-2 border-red-500" />
@@ -513,7 +501,6 @@ export default function App() {
             </div>
           )}
 
-          {/* Modal คอมเมนต์ */}
           {showComments && (
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex flex-col justify-end">
               <div className="bg-white w-full h-[60%] rounded-t-2xl flex flex-col text-gray-900 border-t border-gray-200 shadow-2xl">
@@ -553,7 +540,6 @@ export default function App() {
             </div>
           )}
 
-          {/* Modal แชร์โซเชียล */}
           {showShareModal && (
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end justify-center">
               <div className="bg-white w-full rounded-t-2xl p-5 text-gray-900 shadow-2xl">
@@ -575,7 +561,6 @@ export default function App() {
             </div>
           )}
 
-          {/* Modal ร้านค้าสินค้า */}
           {showCartModal && selectedProduct && (
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-white border border-gray-200 w-full max-w-xs rounded-2xl p-5 text-gray-900 shadow-2xl">
@@ -601,7 +586,6 @@ export default function App() {
 
         </div>
 
-        {/* แถบเมนูด้านล่าง */}
         <div className="h-14 bg-white border-t border-gray-200 flex items-center justify-around px-2 z-40 shrink-0 shadow-lg">
           <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center justify-center w-12 h-full ${activeTab === 'home' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
             <Home className="w-5 h-5" />
