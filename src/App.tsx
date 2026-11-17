@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Heart, MessageCircle, Share2, Music, Home, Compass, PlusSquare, User, Play, ShoppingBag, Send, Upload, Store, Bookmark, MoreVertical } from 'lucide-react';
-  
+
 interface CommentItem {
   id: string;
   username: string;
@@ -35,7 +35,7 @@ interface ProductItem {
   image: string;
 }
 
-// 📌 คลังวิดีโอหลักถาวร (ฝังในระบบ รีเฟรชหรือเปิดใน LINE กี่ครั้งก็ไม่มีวันหาย เปิดเล่นได้ทันทีเหมือนคลิปทั่วไป)
+// 📌 คลังวิดีโอหลักประจำระบบ (มั่นคง เสถียร เปิดดูได้ตลอดกาลไม่หาย)
 const DEFAULT_VIDEOS: VideoItem[] = [
   {
     id: '1',
@@ -80,7 +80,7 @@ const INITIAL_PRODUCTS: ProductItem[] = [
 export default function App() {
   const [videos, setVideos] = useState<VideoItem[]>(() => {
     try {
-      const saved = localStorage.getItem('toktak_permanent_v13');
+      const saved = localStorage.getItem('toktak_pro_sync_v14');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -102,7 +102,6 @@ export default function App() {
   const [selectedProduct, setSelectedProduct] = useState<{name: string, price: string} | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
 
-  // ฟอร์มเพิ่มวิดีโอแบบเสถียร (ใช้ลิงก์ MP4 มั่นใจได้ว่าเปิดที่ไหนก็ไม่หาย)
   const [videoUrlInput, setVideoUrlInput] = useState('');
   const [newCaption, setNewCaption] = useState('');
   const [newSong, setNewSong] = useState('');
@@ -114,7 +113,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('toktak_permanent_v13', JSON.stringify(videos));
+      localStorage.setItem('toktak_pro_sync_v14', JSON.stringify(videos));
     } catch (e) {
       console.error('Error saving localStorage', e);
     }
