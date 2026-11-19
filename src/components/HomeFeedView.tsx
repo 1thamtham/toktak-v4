@@ -5,69 +5,98 @@ import {
   Share2,
   Music,
   ShoppingBag,
-  Play,
   ChevronUp,
   ChevronDown,
   ChevronLeft,
   Volume2,
-  VolumeX
+  VolumeX,
+  Upload,
+  Play,
+  Bookmark
 } from 'lucide-react';
 import { VideoItem, ProductItem } from '../types';
+import { BUNDLED_ASSET_MAP } from '../data/mockData';
+
+const DEFAULT_FALLBACK_POSTER =
+  'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop';
+const EMERGENCY_FALLBACK_VIDEO =
+  'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
+
+const configureInlineVideo = (el: HTMLVideoElement, muted: boolean) => {
+  el.defaultMuted = true;
+  el.muted = muted;
+  el.playsInline = true;
+  el.setAttribute('playsinline', 'true');
+  el.setAttribute('webkit-playsinline', 'true');
+  el.setAttribute('x5-playsinline', 'true');
+  el.setAttribute('x5-video-player-type', 'h5');
+  el.setAttribute('x5-video-orientation', 'portraint');
+};
+
+const safePlayVideo = async (
+  el: HTMLVideoElement | null,
+  preferredMuted: boolean,
+  onForceMute?: () => void
+): Promise<boolean> => {
+  if (!el) return false;
+  configureInlineVideo(el, preferredMuted);
+  try {
+    await el.play();
+    return true;
+  } catch {
+    if (!el.muted) {
+      el.muted = true;
+      onForceMute?.();
+      try {
+        await el.play();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+};
 
 interface HomeFeedViewProps {
   videos: VideoItem[];
   feedType: 'following' | 'foryou';
   onLikeVideo: (videoId: string) => void;
+  onSaveVideo?: (videoId: string) => void;
   onOpenComments: (video: VideoItem) => void;
   onOpenShare: (video: VideoItem) => void;
   onSelectProduct: (product: ProductItem) => void;
   onOpenDesignStudioForProduct?: (productType: 'tshirt' | 'phonecase' | 'totebag') => void;
+  onReplaceVideoFile?: (videoId: string, file: File) => void;
   initialVideoId?: string;
   onBackToProfile?: () => void;
 }
-
-const FALLBACK_VIDEO_URL =
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
 
 export const HomeFeedView: React.FC<HomeFeedViewProps> = ({
   videos,
   feedType,
   onLikeVideo,
+  onSaveVideo,
   onOpenComments,
   onOpenShare,
   onSelectProduct,
+  onReplaceVideoFile,
   initialVideoId,
   onBackToProfile
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [pausedMap, setPausedMap] = useState<Record<string, boolean>>({});
   const [isMuted, setIsMuted] = useState(true);
   const [heartBurstId, setHeartBurstId] = useState<string | null>(null);
+  const [playingMap, setPlayingMap] = useState<Record<string, boolean>>({});
+  
+  // เก็บสถานะวิดีโอที่ผู้ใช้อัปโหลดเลือกจากเครื่องเข้ามาเล่นเอง
+  const [localVideoMap, setLocalVideoMap] = useState<Record<string, string>>({});
 
   const feedContainerRef = useRef<HTMLDivElement | null>(null);
-  const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const cardRefs = useRef<Record<number, HTMLDivElement | null>>({});
-
-  const getVideoSrc = (url?: string) => {
-    if (!url) return FALLBACK_VIDEO_URL;
-    if (url.startsWith('blob:') || url.startsWith('data:') || url.includes('#')) {
-      return url;
-    }
-    return `${url}#t=0.001`;
-  };
-
-  const getSafePoster = (vid: VideoItem) => {
-    if (
-      vid.posterUrl &&
-      !vid.posterUrl.endsWith('.mp4') &&
-      !vid.posterUrl.endsWith('.mov') &&
-      !vid.posterUrl.endsWith('.webm') &&
-      !vid.posterUrl.startsWith('data:video')
-    ) {
-      return vid.posterUrl;
-    }
-    return vid.linkedProduct?.image || '/src/assets/images/tshirt_mockup_1794023817755.jpg';
-  };
+  const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const tapTimerRef = useRef<number | null>(null);
 
   const filteredVideos = useMemo(() => {
     return videos.filter((v) => {
@@ -88,17 +117,11 @@ export const HomeFeedView: React.FC<HomeFeedViewProps> = ({
     }
   };
 
-  // Scroll immediately to requested video when navigating from Profile
+  const appliedInitialVideoRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (initialVideoId) {
-      const idx = filteredVideos.findIndex((v) => v.id === initialVideoId);
-      if (idx !== -1) {
-        setCurrentIndex(idx);
-        requestAnimationFrame(() => {
-          scrollToIndex(idx, 'auto');
-        });
-      }
-    } else {
+    if (!initialVideoId) {
+      appliedInitialVideoRef.current = null;
       setCurrentIndex(0);
       requestAnimationFrame(() => {
         scrollToIndex(0, 'auto');
@@ -106,84 +129,111 @@ export const HomeFeedView: React.FC<HomeFeedViewProps> = ({
     }
   }, [initialVideoId, feedType]);
 
-  // IntersectionObserver (threshold: 0.7) for true TikTok-style scroll-snap autoplay
   useEffect(() => {
-    const rootEl = feedContainerRef.current;
-    if (!rootEl || filteredVideos.length === 0) return;
+    if (!initialVideoId) return;
+    if (appliedInitialVideoRef.current === initialVideoId) return;
+    const idx = filteredVideos.findIndex((v) => v.id === initialVideoId);
+    if (idx !== -1) {
+      appliedInitialVideoRef.current = initialVideoId;
+      setCurrentIndex(idx);
+      requestAnimationFrame(() => {
+        scrollToIndex(idx, 'auto');
+      });
+    }
+  }, [initialVideoId, filteredVideos]);
+
+  useEffect(() => {
+    const root = feedContainerRef.current;
+    if (!root || typeof IntersectionObserver === 'undefined') return;
 
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          const cardEl = entry.target as HTMLDivElement;
-          const vidId = cardEl.dataset.videoId;
-          const idxStr = cardEl.dataset.videoIndex;
-          if (!vidId) return;
-          const videoEl = videoRefs.current[vidId];
-          if (!videoEl) return;
-
-          if (entry.isIntersecting) {
-            if (idxStr !== undefined) {
-              setCurrentIndex(Number(idxStr));
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
+            const idxAttr = entry.target.getAttribute('data-video-index');
+            if (idxAttr !== null) {
+              const parsedIdx = Number(idxAttr);
+              if (!Number.isNaN(parsedIdx)) {
+                setCurrentIndex(parsedIdx);
+              }
             }
-            videoEl.muted = isMuted;
-            videoEl.playsInline = true;
-            const playPromise = videoEl.play();
-            if (playPromise !== undefined) {
-              playPromise
-                .then(() => {
-                  setPausedMap((prev) => ({ ...prev, [vidId]: false }));
-                })
-                .catch(() => {
-                  // Browser blocked unmuted autoplay -> fallback to muted autoplay
-                  videoEl.muted = true;
-                  setIsMuted(true);
-                  videoEl
-                    .play()
-                    .then(() => setPausedMap((prev) => ({ ...prev, [vidId]: false })))
-                    .catch(() => setPausedMap((prev) => ({ ...prev, [vidId]: true })));
-                });
-            }
-          } else {
-            videoEl.pause();
           }
         });
       },
-      {
-        root: rootEl,
-        threshold: 0.7
-      }
+      { root, threshold: 0.6 }
     );
 
-    Object.values(cardRefs.current).forEach((cardEl) => {
-      if (cardEl) observer.observe(cardEl);
+    Object.values(cardRefs.current).forEach((card) => {
+      if (card) observer.observe(card);
     });
 
-    return () => {
-      observer.disconnect();
-    };
-  }, [filteredVideos, isMuted]);
+    return () => observer.disconnect();
+  }, [filteredVideos]);
 
-  // Sync mute state across active video element
   useEffect(() => {
     const activeVid = filteredVideos[currentIndex];
-    if (!activeVid) return;
-    const videoEl = videoRefs.current[activeVid.id];
-    if (videoEl) {
-      videoEl.muted = isMuted;
-    }
-  }, [isMuted, currentIndex, filteredVideos]);
+    filteredVideos.forEach((vid, idx) => {
+      const el = videoRefs.current[vid.id];
+      if (!el) return;
+      configureInlineVideo(el, idx === currentIndex ? isMuted : true);
+      if (idx === currentIndex && activeVid?.id === vid.id) {
+        void safePlayVideo(el, isMuted, () => setIsMuted(true));
+      } else {
+        el.pause();
+      }
+    });
+  }, [currentIndex, isMuted, filteredVideos]);
+
+  // ปลดล็อกการเล่นอัตโนมัติบน iOS/LINE WebView เมื่อผู้ใช้แตะหน้าจอครั้งแรกหรือกลับเข้าหน้าเว็บ
+  useEffect(() => {
+    const resumeActiveVideo = () => {
+      const activeVid = filteredVideos[currentIndex];
+      if (!activeVid) return;
+      const el = videoRefs.current[activeVid.id];
+      if (el && el.paused) {
+        void safePlayVideo(el, isMuted, () => setIsMuted(true));
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        resumeActiveVideo();
+      }
+    };
+
+    window.addEventListener('touchstart', resumeActiveVideo, { once: true, passive: true });
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('touchstart', resumeActiveVideo);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [currentIndex, isMuted, filteredVideos]);
 
   const togglePlayPause = (vidId: string) => {
-    const videoEl = videoRefs.current[vidId];
-    if (!videoEl) return;
-    if (videoEl.paused) {
-      videoEl.play().then(() => {
-        setPausedMap((prev) => ({ ...prev, [vidId]: false }));
-      }).catch(() => {});
+    const el = videoRefs.current[vidId];
+    if (!el) return;
+    if (el.paused) {
+      if (el.readyState === 0) {
+        el.load();
+      }
+      void safePlayVideo(el, isMuted, () => setIsMuted(true));
     } else {
-      videoEl.pause();
-      setPausedMap((prev) => ({ ...prev, [vidId]: true }));
+      el.pause();
     }
+  };
+
+  const handleVideoTap = (e: React.MouseEvent, vid: VideoItem) => {
+    e.stopPropagation();
+    if (tapTimerRef.current) {
+      window.clearTimeout(tapTimerRef.current);
+      tapTimerRef.current = null;
+      handleDoubleTap(e, vid);
+      return;
+    }
+    tapTimerRef.current = window.setTimeout(() => {
+      tapTimerRef.current = null;
+      togglePlayPause(vid.id);
+    }, 220);
   };
 
   const handleDoubleTap = (e: React.MouseEvent, vid: VideoItem) => {
@@ -197,102 +247,130 @@ export const HomeFeedView: React.FC<HomeFeedViewProps> = ({
 
   const handleNextVideo = () => {
     const next = currentIndex < filteredVideos.length - 1 ? currentIndex + 1 : 0;
+    setCurrentIndex(next);
     scrollToIndex(next, 'smooth');
   };
 
   const handlePrevVideo = () => {
     const prev = currentIndex > 0 ? currentIndex - 1 : filteredVideos.length - 1;
+    setCurrentIndex(prev);
     scrollToIndex(prev, 'smooth');
   };
 
-  // Keyboard navigation (Up/Down/Space)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const activeTag = document.activeElement?.tagName?.toLowerCase();
-      if (activeTag === 'input' || activeTag === 'textarea') return;
-
-      if (e.key === 'ArrowDown' || e.key === 'PageDown') {
-        e.preventDefault();
-        handleNextVideo();
-      } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
-        e.preventDefault();
-        handlePrevVideo();
-      } else if (e.key === ' ' || e.code === 'Space') {
-        e.preventDefault();
-        const activeVid = filteredVideos[currentIndex];
-        if (activeVid) togglePlayPause(activeVid.id);
+  // ฟังก์ชันเลือกไฟล์วิดีโอจากเครื่องมือถือหรือคอมพิวเตอร์
+  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>, videoId?: string) => {
+    const file = e.target.files?.[0];
+    if (file && videoId) {
+      const blobUrl = URL.createObjectURL(file);
+      setLocalVideoMap((prev) => ({ ...prev, [videoId]: blobUrl }));
+      if (onReplaceVideoFile) {
+        onReplaceVideoFile(videoId, file);
       }
-    };
+    }
+    e.target.value = '';
+  };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentIndex, filteredVideos]);
+  const handleVideoError = (vidId: string) => {
+    const el = videoRefs.current[vidId];
+    if (el && el.src && !el.src.includes('flower.mp4') && !el.src.startsWith('blob:')) {
+      el.src = EMERGENCY_FALLBACK_VIDEO;
+      el.load();
+      void safePlayVideo(el, true, () => setIsMuted(true));
+      return;
+    }
+    setPlayingMap((prev) => ({ ...prev, [vidId]: false }));
+  };
 
   if (filteredVideos.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center text-slate-400 text-xs bg-black">
-        ไม่มีคลิปในหมวดนี้
+      <div className="h-full flex flex-col items-center justify-center text-slate-300 text-xs bg-black px-6 text-center gap-2">
+        <Upload className="w-8 h-8 text-rose-500/80" />
+        <p className="font-bold text-sm text-white">ยังไม่มีคลิปวิดีโอในฟีด</p>
+        <p className="text-[11px] text-slate-400">กดปุ่ม + ด้านล่างเพื่ออัปโหลดคลิปแรกของคุณ</p>
       </div>
     );
   }
 
   return (
     <div className="relative w-full h-full bg-black overflow-hidden select-none">
-      {/* Floating Back to Profile button when viewed from profile */}
       {onBackToProfile && (
         <button
           onClick={(e) => {
             e.stopPropagation();
             onBackToProfile();
           }}
-          className="absolute top-3 left-3 z-40 px-3 py-1.5 bg-black/70 hover:bg-black/90 active:scale-95 text-white text-xs font-bold rounded-full border border-white/25 backdrop-blur-md flex items-center gap-1 shadow-2xl transition"
+          className="absolute top-3 left-3 z-40 px-3 py-1.5 bg-black/75 hover:bg-black/90 active:scale-95 text-white text-xs font-bold rounded-full border border-white/25 backdrop-blur-md flex items-center gap-1 shadow-2xl transition"
         >
           <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
           <span>โปรไฟล์</span>
         </button>
       )}
 
-      {/* Up/Down Quick Navigation Chevrons + Mute Toggle + Counter */}
-      <div className="absolute top-16 right-3 flex flex-col items-center gap-1.5 z-30">
+      {/* แถวควบคุมด้านบนขวา (จัดแนวนอนแถวเดียวเพื่อไม่ให้ลงมาชนปุ่มโปรไฟล์และปุ่มถูกใจด้านขวา) */}
+      <div className="absolute top-14 right-3 z-30 flex items-center gap-1.5">
+        <input
+          type="file"
+          ref={fileInputRef}
+          accept="video/*"
+          className="hidden"
+          onChange={(e) => handleFileSelected(e, filteredVideos[currentIndex]?.id)}
+        />
         <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            fileInputRef.current?.click();
+          }}
+          className="px-2.5 py-1.5 bg-rose-600/95 hover:bg-rose-700 active:scale-95 text-white text-[11px] font-bold rounded-full shadow-lg flex items-center gap-1 backdrop-blur-md transition"
+          title="อัปโหลดวิดีโอจากเครื่องของคุณ"
+        >
+          <Upload className="w-3.5 h-3.5" />
+          <span>เลือกคลิป</span>
+        </button>
+
+        <button
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             setIsMuted((prev) => !prev);
           }}
-          className="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md text-white shadow-md border border-white/20 flex items-center justify-center hover:bg-black/80 transition active:scale-90"
+          className="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md text-white shadow-md border border-white/25 flex items-center justify-center hover:bg-black/80 transition active:scale-90"
           title={isMuted ? 'เปิดเสียง' : 'ปิดเสียง'}
         >
           {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
         </button>
 
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handlePrevVideo();
-          }}
-          className="w-8 h-8 rounded-full bg-white/90 backdrop-blur-md text-slate-700 shadow-md border border-slate-200/80 flex items-center justify-center hover:bg-white transition active:scale-90"
-          title="คลิปก่อนหน้า"
-        >
-          <ChevronUp className="w-4 h-4" />
-        </button>
+        <div className="flex items-center bg-black/60 backdrop-blur-md rounded-full border border-white/25 shadow-md p-0.5">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePrevVideo();
+            }}
+            className="w-6 h-6 rounded-full text-white flex items-center justify-center hover:bg-white/15 transition active:scale-90"
+            title="คลิปก่อนหน้า"
+          >
+            <ChevronUp className="w-3.5 h-3.5" />
+          </button>
 
-        <span className="px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] font-bold shadow-xs">
-          {currentIndex + 1}/{filteredVideos.length}
-        </span>
+          <span className="px-1.5 text-white text-[10px] font-bold tabular-nums">
+            {currentIndex + 1}/{filteredVideos.length}
+          </span>
 
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleNextVideo();
-          }}
-          className="w-8 h-8 rounded-full bg-white/90 backdrop-blur-md text-slate-700 shadow-md border border-slate-200/80 flex items-center justify-center hover:bg-white transition active:scale-90"
-          title="คลิปถัดไป"
-        >
-          <ChevronDown className="w-4 h-4" />
-        </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleNextVideo();
+            }}
+            className="w-6 h-6 rounded-full text-white flex items-center justify-center hover:bg-white/15 transition active:scale-90"
+            title="คลิปถัดไป"
+          >
+            <ChevronDown className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
-      {/* Scroll-Snap Vertical Video Feed */}
       <div
         id="videoFeed"
         ref={feedContainerRef}
@@ -300,9 +378,22 @@ export const HomeFeedView: React.FC<HomeFeedViewProps> = ({
         style={{ WebkitOverflowScrolling: 'touch' }}
       >
         {filteredVideos.map((vid, idx) => {
-          const safePoster = getSafePoster(vid);
-          const isPaused = Boolean(pausedMap[vid.id]);
-          const isNearActive = Math.abs(idx - currentIndex) <= 1;
+          const rawPoster =
+            vid.posterUrl && !vid.posterUrl.endsWith('.mp4') && !vid.posterUrl.startsWith('data:video')
+              ? BUNDLED_ASSET_MAP[vid.posterUrl] || vid.posterUrl
+              : vid.linkedProduct?.image
+              ? BUNDLED_ASSET_MAP[vid.linkedProduct.image] || vid.linkedProduct.image
+              : DEFAULT_FALLBACK_POSTER;
+          const posterImg = rawPoster || DEFAULT_FALLBACK_POSTER;
+          const rawSource = localVideoMap[vid.id] || vid.videoUrl;
+          const isHydratingIdb = Boolean(rawSource && rawSource.startsWith('idb://'));
+          const activeVideoSource = isHydratingIdb
+            ? undefined
+            : rawSource && rawSource.trim() !== ''
+            ? rawSource
+            : undefined;
+          const isActiveSlide = idx === currentIndex;
+          const isPlaying = Boolean(playingMap[vid.id]);
 
           return (
             <div
@@ -314,136 +405,179 @@ export const HomeFeedView: React.FC<HomeFeedViewProps> = ({
               data-video-index={idx}
               className="relative w-full h-full snap-start snap-always shrink-0 bg-black flex items-center justify-center overflow-hidden"
             >
-              {/* Video / Visual Layer */}
               <div
-                className="w-full h-full relative cursor-pointer bg-black flex items-center justify-center"
-                onClick={() => togglePlayPause(vid.id)}
-                onDoubleClick={(e) => handleDoubleTap(e, vid)}
+                className="w-full h-full relative bg-black flex items-center justify-center"
+                onClick={(e) => handleVideoTap(e, vid)}
               >
-                {/* Instant Poster Layer */}
+                {/* ภาพปกสำรองด้านหลัง ป้องกันอาการจอสีดำขณะโหลดหรือรอกดเล่นบนมือถือ */}
                 <img
-                  src={safePoster}
-                  alt={vid.caption || 'TokTak วิดีโอ'}
-                  loading={isNearActive ? 'eager' : 'lazy'}
-                  className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                />
-
-                <video
-                  ref={(el) => {
-                    videoRefs.current[vid.id] = el;
-                  }}
-                  src={getVideoSrc(vid.videoUrl)}
-                  poster={safePoster}
-                  loop
-                  playsInline
-                  autoPlay={idx === 0 || vid.id === initialVideoId}
-                  muted={isMuted}
-                  preload={isNearActive ? 'auto' : 'metadata'}
-                  className="relative z-10 w-full h-full object-cover"
+                  src={posterImg}
+                  alt={vid.caption || 'ภาพปกวิดีโอ'}
                   onError={(e) => {
-                    const el = e.currentTarget;
-                    if (!el.src.includes('ForBiggerBlazes.mp4')) {
-                      el.src = FALLBACK_VIDEO_URL;
-                      el.load();
-                      el.muted = true;
-                      el.play().catch(() => {});
+                    if (e.currentTarget.src !== DEFAULT_FALLBACK_POSTER) {
+                      e.currentTarget.src = DEFAULT_FALLBACK_POSTER;
                     }
                   }}
+                  className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none"
                 />
 
-                {/* Pause Indicator Overlay */}
-                {isPaused && (
-                  <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-                    <div className="w-16 h-16 rounded-full bg-white/80 backdrop-blur-xs flex items-center justify-center text-slate-800 shadow-lg border border-slate-200">
-                      <Play className="w-8 h-8 fill-slate-800 ml-1" />
-                    </div>
-                  </div>
+                {/* ตัวเล่นวิดีโอเต็มจอ 100% รองรับทั้ง Auto-play และแตะเพื่อเล่น/หยุดบน iOS และ Android */}
+                <video
+                  key={`${vid.id}-${activeVideoSource || 'hydrating'}`}
+                  ref={(el) => {
+                    videoRefs.current[vid.id] = el;
+                    if (el) {
+                      configureInlineVideo(el, isMuted || !isActiveSlide);
+                    }
+                  }}
+                  src={activeVideoSource}
+                  poster={posterImg}
+                  autoPlay={isActiveSlide}
+                  playsInline
+                  muted={isMuted || !isActiveSlide}
+                  loop
+                  preload="auto"
+                  onLoadedData={(e) => {
+                    if (isActiveSlide && e.currentTarget.paused) {
+                      void safePlayVideo(e.currentTarget, isMuted, () => setIsMuted(true));
+                    }
+                  }}
+                  onCanPlay={(e) => {
+                    if (isActiveSlide && e.currentTarget.paused) {
+                      void safePlayVideo(e.currentTarget, isMuted, () => setIsMuted(true));
+                    }
+                  }}
+                  onPlaying={() => setPlayingMap((prev) => ({ ...prev, [vid.id]: true }))}
+                  onPlay={() => setPlayingMap((prev) => ({ ...prev, [vid.id]: true }))}
+                  onPause={() => setPlayingMap((prev) => ({ ...prev, [vid.id]: false }))}
+                  onEnded={() => setPlayingMap((prev) => ({ ...prev, [vid.id]: false }))}
+                  onError={() => handleVideoError(vid.id)}
+                  className="absolute inset-0 w-full h-full object-cover z-10 cursor-pointer"
+                />
+
+                {!isPlaying && (
+                  <button
+                    type="button"
+                    aria-label="เล่นวิดีโอ"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      togglePlayPause(vid.id);
+                    }}
+                    className="relative z-20 w-16 h-16 rounded-full bg-black/55 hover:bg-black/75 backdrop-blur-md border border-white/40 flex items-center justify-center text-white shadow-2xl active:scale-90 transition"
+                  >
+                    <Play className="w-8 h-8 fill-white ml-1" />
+                  </button>
                 )}
 
-                {/* Double-tap Heart Burst Animation */}
                 {heartBurstId === vid.id && (
-                  <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none animate-ping duration-700">
+                  <div className="absolute inset-0 z-35 flex items-center justify-center pointer-events-none animate-ping duration-700">
                     <Heart className="w-24 h-24 fill-rose-500 text-rose-500 opacity-90 drop-shadow-md" />
                   </div>
                 )}
               </div>
 
-              {/* Right Side Action Column */}
-              <div className="absolute right-2.5 bottom-18 z-20 flex flex-col items-center gap-3">
-                {/* Creator Avatar with follow plus */}
-                <div className="relative group">
+              {/* Bottom Gradient Scrim for TikTok-style text legibility */}
+              <div className="absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/80 via-black/35 to-transparent pointer-events-none z-20" />
+
+              {/* Right Side Action Column (TikTok Style - เรียงแนวตั้งเป็นระเบียบ เว้นระยะขอบขวาและขอบล่างสวยงาม) */}
+              <div className="absolute right-3 bottom-5 z-30 flex flex-col items-center gap-4">
+                <div className="relative group mb-2 shrink-0">
                   <img
                     src={vid.creatorAvatar}
                     alt={vid.creatorName}
-                    className="w-11 h-11 rounded-full object-cover border-2 border-white shadow-md"
+                    className="w-11 h-11 rounded-full object-cover border-2 border-white shadow-lg"
                   />
-                  <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold shadow-sm">
+                  <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-5 h-5 bg-rose-500 text-white rounded-full flex items-center justify-center text-xs font-black shadow-md border border-white">
                     +
                   </div>
                 </div>
 
-                {/* Heart / Like Button */}
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     onLikeVideo(vid.id);
                   }}
                   className="flex flex-col items-center group active:scale-90 transition"
                 >
-                  <div className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-md shadow-md border border-slate-200/80 flex items-center justify-center transition hover:bg-white">
+                  <div className="w-10 h-10 rounded-full bg-black/45 backdrop-blur-md shadow-md border border-white/20 flex items-center justify-center transition hover:bg-black/65">
                     <Heart
                       className={`w-5 h-5 transition-transform ${
-                        vid.isLiked ? 'fill-rose-500 text-rose-500 scale-110' : 'text-slate-800 stroke-[2]'
+                        vid.isLiked ? 'fill-rose-500 text-rose-500 scale-110' : 'text-white stroke-[2.2]'
                       }`}
                     />
                   </div>
-                  <span className="text-[11px] font-bold text-white tracking-tight mt-0.5 drop-shadow-md">
+                  <span className="text-[11px] font-bold text-white tracking-tight mt-0.5 drop-shadow-[0_1.2px_2px_rgba(0,0,0,0.9)]">
                     {vid.likesCount.toLocaleString()}
                   </span>
                 </button>
 
-                {/* Comments Button */}
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     onOpenComments(vid);
                   }}
                   className="flex flex-col items-center group active:scale-90 transition"
                 >
-                  <div className="w-10 h-10 rounded-full bg-white/95 backdrop-blur-md shadow-md border border-slate-200/80 flex items-center justify-center text-slate-800 hover:bg-white transition">
-                    <MessageCircle className="w-5 h-5 stroke-[2]" />
+                  <div className="w-10 h-10 rounded-full bg-black/45 backdrop-blur-md shadow-md border border-white/20 flex items-center justify-center text-white hover:bg-black/65 transition">
+                    <MessageCircle className="w-5 h-5 stroke-[2.2]" />
                   </div>
-                  <span className="text-[11px] font-bold text-white tracking-tight mt-0.5 drop-shadow-md">
+                  <span className="text-[11px] font-bold text-white tracking-tight mt-0.5 drop-shadow-[0_1.2px_2px_rgba(0,0,0,0.9)]">
                     {vid.commentsCount.toLocaleString()}
                   </span>
                 </button>
 
-                {/* Share Button */}
+                {onSaveVideo && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSaveVideo(vid.id);
+                    }}
+                    className="flex flex-col items-center group active:scale-90 transition"
+                    title="บันทึกคลิปโปรด"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-black/45 backdrop-blur-md shadow-md border border-white/20 flex items-center justify-center transition hover:bg-black/65">
+                      <Bookmark
+                        className={`w-5 h-5 transition-transform ${
+                          vid.isSaved ? 'fill-amber-400 text-amber-400 scale-110' : 'text-white stroke-[2.2]'
+                        }`}
+                      />
+                    </div>
+                    <span className="text-[10px] font-bold text-white tracking-tight mt-0.5 drop-shadow-[0_1.2px_2px_rgba(0,0,0,0.9)]">
+                      {vid.isSaved ? 'บันทึกแล้ว' : 'บันทึก'}
+                    </span>
+                  </button>
+                )}
+
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     onOpenShare(vid);
                   }}
                   className="flex flex-col items-center group active:scale-90 transition"
                 >
-                  <div className="w-10 h-10 rounded-full bg-white/95 backdrop-blur-md shadow-md border border-slate-200/80 flex items-center justify-center text-slate-800 hover:bg-white transition">
-                    <Share2 className="w-5 h-5 stroke-[2]" />
+                  <div className="w-10 h-10 rounded-full bg-black/45 backdrop-blur-md shadow-md border border-white/20 flex items-center justify-center text-white hover:bg-black/65 transition">
+                    <Share2 className="w-5 h-5 stroke-[2.2]" />
                   </div>
-                  <span className="text-[11px] font-bold text-white tracking-tight mt-0.5 drop-shadow-md">
+                  <span className="text-[11px] font-bold text-white tracking-tight mt-0.5 drop-shadow-[0_1.2px_2px_rgba(0,0,0,0.9)]">
                     {vid.sharesCount.toLocaleString()}
                   </span>
                 </button>
 
-                {/* Spinning Vinyl Record */}
-                <div className="w-9 h-9 rounded-full bg-slate-900 border-2 border-white shadow-md p-1 flex items-center justify-center animate-spin [animation-duration:4s]">
-                  <div className="w-4 h-4 rounded-full bg-rose-500 flex items-center justify-center">
-                    <div className="w-1.5 h-1.5 rounded-full bg-white" />
-                  </div>
+                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-zinc-900 via-zinc-700 to-zinc-900 border border-white/25 shadow-lg p-1.5 flex items-center justify-center animate-spin [animation-duration:4s]">
+                  <img
+                    src={vid.creatorAvatar}
+                    alt={vid.creatorName}
+                    className="w-full h-full rounded-full object-cover"
+                  />
                 </div>
               </div>
 
-              {/* Bottom Left Area: Creator info, Caption, Sound, AND Compact Buy Button */}
-              <div className="absolute left-3 bottom-16 right-16 z-20 space-y-2 pointer-events-none">
+              {/* Bottom Left Area */}
+              <div className="absolute left-3.5 bottom-5 right-20 z-30 space-y-2 pointer-events-none">
                 <div className="flex items-center gap-1.5 pointer-events-auto">
                   <span className="text-sm font-bold text-white tracking-tight drop-shadow-[0_1.2px_1.2px_rgba(0,0,0,0.8)]">
                     {vid.creatorName || vid.creatorHandle}
@@ -455,9 +589,7 @@ export const HomeFeedView: React.FC<HomeFeedViewProps> = ({
 
                 <div className="text-white drop-shadow-[0_1.2px_1.2px_rgba(0,0,0,0.8)]">
                   <p className="text-xs sm:text-sm font-medium line-clamp-2 max-w-[280px]">
-                    {vid.caption?.replace(/เสื้อยืดโอเวอร์ไซส์ สตรีทอาร์ต ลิมิเต็ด/g, '').replace(/^เสื้อยืด\s*/, '').trim() ||
-                      vid.caption ||
-                      'สินค้าคุณภาพดี ดีไซน์ทันสมัย'}
+                    {vid.caption || 'สินค้าคุณภาพดี ดีไซน์ทันสมัย'}
                   </p>
                 </div>
 

@@ -280,7 +280,7 @@ export const LiveStreamView: React.FC<LiveStreamViewProps> = ({
         {!cameraActive && (
           <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center bg-slate-900">
             <video
-              src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+              src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
               poster="/src/assets/images/tshirt_mockup_1794023817755.jpg"
               loop
               autoPlay

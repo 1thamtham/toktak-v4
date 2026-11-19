@@ -1,0 +1,38 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isVerifiedUser() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    match /videos/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isVerifiedUser()
+        && request.auth.uid == userId
+        && request.resource != null
+        && request.resource.size <= 100 * 1024 * 1024
+        && request.resource.contentType.matches('video/.*');
+      allow delete: if isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    match /posters/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isVerifiedUser()
+        && request.auth.uid == userId
+        && request.resource != null
+        && request.resource.size <= 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    match /avatars/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isVerifiedUser()
+        && request.auth.uid == userId
+        && request.resource != null
+        && request.resource.size <= 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if isVerifiedUser() && request.auth.uid == userId;
+    }
+  }
+}

@@ -1,4 +1,15 @@
 import { ProductItem, VideoItem, ServiceItem, CartItem, AdminOrder } from '../types';
+import tshirtMockupImg from '../assets/images/tshirt_mockup_1794023817755.jpg';
+import phonecaseMockupImg from '../assets/images/phonecase_mockup_1794023818273.jpg';
+import totebagMockupImg from '../assets/images/totebag_mockup_1794023818674.jpg';
+import creatorAvatarImg from '../assets/images/creator_avatar_1794023819826.jpg';
+
+export const BUNDLED_ASSET_MAP: Record<string, string> = {
+  '/src/assets/images/tshirt_mockup_1794023817755.jpg': tshirtMockupImg,
+  '/src/assets/images/phonecase_mockup_1794023818273.jpg': phonecaseMockupImg,
+  '/src/assets/images/totebag_mockup_1794023818674.jpg': totebagMockupImg,
+  '/src/assets/images/creator_avatar_1794023819826.jpg': creatorAvatarImg
+};
 
 export const INITIAL_ADMIN_ORDERS: AdminOrder[] = [
   {
@@ -45,10 +56,10 @@ export const INITIAL_PRODUCTS: ProductItem[] = [
     name: 'เสื้อยืดโอเวอร์ไซส์ สตรีทอาร์ต ลิมิเต็ด',
     price: 490,
     originalPrice: 650,
-    image: '/src/assets/images/tshirt_mockup_1794023817755.jpg',
+    image: tshirtMockupImg,
     productType: 'tshirt',
     creatorName: 'TERRAIN Studio',
-    creatorAvatar: '/src/assets/images/creator_avatar_1794023819826.jpg',
+    creatorAvatar: creatorAvatarImg,
     salesCount: 1420,
     rating: 4.9,
     isCustomizable: true,
@@ -60,7 +71,7 @@ export const INITIAL_PRODUCTS: ProductItem[] = [
     name: 'เคสมือถือคลื่นไซเคเดลิก กันกระแทกระดับพรีเมียม',
     price: 350,
     originalPrice: 490,
-    image: '/src/assets/images/phonecase_mockup_1794023818273.jpg',
+    image: phonecaseMockupImg,
     productType: 'phonecase',
     creatorName: 'Waveform Labs',
     creatorAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
@@ -75,10 +86,10 @@ export const INITIAL_PRODUCTS: ProductItem[] = [
     name: 'กระเป๋าผ้าแคนวาส Modern Essentials สะพายไหล่',
     price: 290,
     originalPrice: 390,
-    image: '/src/assets/images/totebag_mockup_1794023818674.jpg',
+    image: totebagMockupImg,
     productType: 'totebag',
     creatorName: 'Artisan Goods',
-    creatorAvatar: '/src/assets/images/creator_avatar_1794023819826.jpg',
+    creatorAvatar: creatorAvatarImg,
     salesCount: 2150,
     rating: 5.0,
     isCustomizable: true,
@@ -90,7 +101,7 @@ export const INITIAL_PRODUCTS: ProductItem[] = [
     name: 'เสื้อยืดมินิมอล Typography "TOKYO NOIR"',
     price: 450,
     originalPrice: 590,
-    image: '/src/assets/images/tshirt_mockup_1794023817755.jpg',
+    image: tshirtMockupImg,
     productType: 'tshirt',
     creatorName: 'Noir Collective',
     creatorAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
@@ -105,8 +116,8 @@ export const INITIAL_PRODUCTS: ProductItem[] = [
 export const INITIAL_VIDEOS: VideoItem[] = [
   {
     id: 'vid-1',
-    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-    posterUrl: '/src/assets/images/tshirt_mockup_1794023817755.jpg',
+    videoUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+    posterUrl: tshirtMockupImg,
     creatorName: 'Golden River City',
     creatorHandle: '@goldenrivercity',
     creatorAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&auto=format&fit=crop&q=95',
@@ -124,8 +135,8 @@ export const INITIAL_VIDEOS: VideoItem[] = [
   },
   {
     id: 'vid-2',
-    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
-    posterUrl: '/src/assets/images/phonecase_mockup_1794023818273.jpg',
+    videoUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/friday.mp4',
+    posterUrl: phonecaseMockupImg,
     creatorName: 'Waveform Labs',
     creatorHandle: '@waveform.case',
     creatorAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
@@ -144,11 +155,11 @@ export const INITIAL_VIDEOS: VideoItem[] = [
   },
   {
     id: 'vid-3',
-    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyBlazes.mp4',
-    posterUrl: '/src/assets/images/totebag_mockup_1794023818674.jpg',
+    videoUrl: 'https://vjs.zencdn.net/v/oceans.mp4',
+    posterUrl: totebagMockupImg,
     creatorName: 'Artisan Goods',
     creatorHandle: '@artisan.official',
-    creatorAvatar: '/src/assets/images/creator_avatar_1794023819826.jpg',
+    creatorAvatar: creatorAvatarImg,
     creatorEmail: 'artisan@toktak.com',
     ownerEmail: 'artisan@toktak.com',
     authorEmail: 'artisan@toktak.com',
@@ -164,8 +175,8 @@ export const INITIAL_VIDEOS: VideoItem[] = [
   },
   {
     id: 'vid-draft-1',
-    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-    posterUrl: '/src/assets/images/tshirt_mockup_1794023817755.jpg',
+    videoUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+    posterUrl: tshirtMockupImg,
     creatorName: 'Golden River City',
     creatorHandle: '@goldenrivercity',
     creatorAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&auto=format&fit=crop&q=95',
@@ -193,14 +204,14 @@ export const INITIAL_SERVICES: ServiceItem[] = [
     categoryLabel: 'ออกแบบกราฟิก',
     creatorName: 'Krit Typography',
     creatorHandle: '@krit.design',
-    creatorAvatar: '/src/assets/images/creator_avatar_1794023819826.jpg',
+    creatorAvatar: creatorAvatarImg,
     rating: 4.95,
     reviewCount: 148,
     startingPrice: 500,
     turnaroundDays: 2,
     description: 'ส่งไฟล์เวกเตอร์ AI/PNG ความละเอียด 300dpi พร้อมสำหรับนำไปพิมพ์สกรีนเสื้อทันที แก้ไขได้ 3 ครั้งฟรี',
     tags: ['Streetwear', 'Typography', 'Logo', 'Vector'],
-    coverImage: '/src/assets/images/tshirt_mockup_1794023817755.jpg'
+    coverImage: tshirtMockupImg
   },
   {
     id: 'srv-2',
@@ -232,7 +243,7 @@ export const INITIAL_SERVICES: ServiceItem[] = [
     turnaroundDays: 3,
     description: 'รับสกรีนตั้งแต่ 1 ชิ้น งานคมชัดสีไม่หลุดลอก ใช้หมึกแท้มาตรฐานสากล เป็นมิตรกับผิว',
     tags: ['DTG', 'Screen Print', 'No MOQ', 'Tote Bag'],
-    coverImage: '/src/assets/images/totebag_mockup_1794023818674.jpg'
+    coverImage: totebagMockupImg
   },
   {
     id: 'srv-4',
@@ -248,7 +259,7 @@ export const INITIAL_SERVICES: ServiceItem[] = [
     turnaroundDays: 2,
     description: 'วาดภาพคุณ คู่รัก หรือสัตว์เลี้ยงในสไตล์น่ารักสดใส พร้อมจัดวางลงเคสมือถือหรือเสื้อผ้าได้เลย',
     tags: ['Portrait', 'Cute Cartoon', 'Sticker', 'Pet Art'],
-    coverImage: '/src/assets/images/phonecase_mockup_1794023818273.jpg'
+    coverImage: phonecaseMockupImg
   }
 ];
 
@@ -261,7 +272,7 @@ export const INITIAL_CART: CartItem[] = [
     quantity: 1,
     color: '#0f172a',
     customText: 'BKK NIGHTS',
-    previewImage: '/src/assets/images/tshirt_mockup_1794023817755.jpg',
+    previewImage: tshirtMockupImg,
     timestamp: Date.now() - 3600000
   }
 ];

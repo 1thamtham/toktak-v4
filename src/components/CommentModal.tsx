@@ -81,7 +81,7 @@ export const CommentModal: React.FC<CommentModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-xs select-none">
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/50 backdrop-blur-xs select-none">
       <div className="w-full max-w-md bg-white border-t border-slate-200 rounded-t-3xl h-[65vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-200">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">

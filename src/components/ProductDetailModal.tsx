@@ -18,7 +18,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   if (!product) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50 backdrop-blur-xs select-none">
+    <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50 backdrop-blur-xs select-none">
       <div className="w-full max-w-md bg-white border border-slate-200 rounded-t-3xl sm:rounded-2xl p-4 shadow-2xl animate-in slide-in-from-bottom duration-200">
         <div className="flex items-center justify-between pb-2 border-b border-slate-100">
           <span className="text-xs font-bold text-slate-900">รายละเอียดสินค้า</span>

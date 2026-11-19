@@ -1,0 +1,526 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public creator profile displayed on TokTak profile and video cards without PII.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "username": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40,
+          "pattern": "^@[a-zA-Z0-9._-]+$"
+        },
+        "bio": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 300
+        },
+        "avatarUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 100000
+        },
+        "isPublic": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "username",
+        "bio",
+        "isPublic",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PrivateUserAccount": {
+      "title": "PrivateUserAccount",
+      "description": "Private user account record isolating PII such as email and role.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "admin"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "role", "createdAt", "updatedAt"]
+    },
+    "Video": {
+      "title": "Video",
+      "description": "Short video metadata pointing to cloud media files stored in Firebase Storage or HTTPS.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "authorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "url": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 2048,
+          "pattern": "^https?://.+"
+        },
+        "posterUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 100000
+        },
+        "storagePath": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 300
+        },
+        "posterStoragePath": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 300
+        },
+        "username": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40,
+          "pattern": "^@[a-zA-Z0-9._-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "avatarColor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "avatarUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 100000
+        },
+        "caption": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "song": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 150
+        },
+        "likes": {
+          "type": "number"
+        },
+        "commentsCount": {
+          "type": "number"
+        },
+        "feedCategory": {
+          "type": "string",
+          "enum": ["foryou", "following"]
+        },
+        "linkedProductId": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "lastCommentId": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["public", "private"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "authorId",
+        "url",
+        "username",
+        "displayName",
+        "avatarColor",
+        "caption",
+        "song",
+        "likes",
+        "commentsCount",
+        "feedCategory",
+        "visibility",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "VideoComment": {
+      "title": "VideoComment",
+      "description": "Public comment attached to a specific video document.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "videoId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "authorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "author": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "isPublic": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "videoId",
+        "authorId",
+        "author",
+        "text",
+        "isPublic",
+        "createdAt"
+      ]
+    },
+    "VideoLike": {
+      "title": "VideoLike",
+      "description": "User like interaction record synchronized atomically with video like counts.",
+      "type": "object",
+      "properties": {
+        "videoId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["videoId", "userId", "createdAt"]
+    },
+    "SavedVideo": {
+      "title": "SavedVideo",
+      "description": "Bookmarked video reference saved to a user's personal library.",
+      "type": "object",
+      "properties": {
+        "videoId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["videoId", "userId", "createdAt"]
+    },
+    "CartEntry": {
+      "title": "CartEntry",
+      "description": "Shopping cart item stored per authenticated user.",
+      "type": "object",
+      "properties": {
+        "productId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["productId", "userId", "quantity", "updatedAt"]
+    },
+    "ShopOrder": {
+      "title": "ShopOrder",
+      "description": "Completed shop checkout order record owned by a user.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "totalPrice": {
+          "type": "number"
+        },
+        "totalItems": {
+          "type": "number"
+        },
+        "itemsSummary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "completed", "cancelled"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "totalPrice",
+        "totalItems",
+        "itemsSummary",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ServiceBooking": {
+      "title": "ServiceBooking",
+      "description": "Creator service booking inquiry submitted by a user.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "serviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "serviceTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 150
+        },
+        "price": {
+          "type": "number"
+        },
+        "note": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "confirmed", "completed", "cancelled"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "serviceId",
+        "serviceTitle",
+        "price",
+        "note",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Admin allowlist document verified in Firestore security rules.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 160
+        }
+      },
+      "required": ["uid", "email"]
+    },
+    "ConnectionHealth": {
+      "title": "ConnectionHealth",
+      "description": "Server connection check document used during app initialization.",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": ["ok"]
+    }
+  },
+  "firestore": {
+    "/profiles/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Public creator profiles without PII"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/PrivateUserAccount" },
+      "description": "Private user account PII and role documents"
+    },
+    "/users/{userId}/savedVideos/{videoId}": {
+      "schema": { "$ref": "#/entities/SavedVideo" },
+      "description": "User's bookmarked videos"
+    },
+    "/users/{userId}/cartItems/{productId}": {
+      "schema": { "$ref": "#/entities/CartEntry" },
+      "description": "User's cloud shopping cart items"
+    },
+    "/videos/{videoId}": {
+      "schema": { "$ref": "#/entities/Video" },
+      "description": "Cloud-synced short video feed items"
+    },
+    "/videos/{videoId}/comments/{commentId}": {
+      "schema": { "$ref": "#/entities/VideoComment" },
+      "description": "Comments belonging to a video"
+    },
+    "/videos/{videoId}/likes/{userId}": {
+      "schema": { "$ref": "#/entities/VideoLike" },
+      "description": "Per-user like records synchronized atomically with video likes"
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/ShopOrder" },
+      "description": "User shop checkout orders"
+    },
+    "/serviceBookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/ServiceBooking" },
+      "description": "Creator service booking inquiries"
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Admin allowlist records"
+    },
+    "/test/{docId}": {
+      "schema": { "$ref": "#/entities/ConnectionHealth" },
+      "description": "Startup Firestore server connectivity test path"
+    }
+  }
+}

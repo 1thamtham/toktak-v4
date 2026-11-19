@@ -27,6 +27,7 @@ import {
   Check
 } from 'lucide-react';
 import { ProductType, ProductItem, UserProfile } from '../types';
+import { BUNDLED_ASSET_MAP } from '../data/mockData';
 
 interface CreateModalProps {
   isOpen: boolean;
@@ -37,6 +38,7 @@ interface CreateModalProps {
     caption: string;
     music: string;
     videoUrl: string;
+    videoFile?: File | null;
     posterUrl?: string;
     linkedProduct?: ProductItem;
     linkedProductType?: ProductType;
@@ -65,8 +67,8 @@ const SAMPLE_GALLERY_VIDEOS = [
   {
     id: 'sample-streetwear',
     name: 'สตรีทแวร์แฟชั่นคัสตอม',
-    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-    poster: '/src/assets/images/tshirt_mockup_1794023817755.jpg',
+    url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+    poster: BUNDLED_ASSET_MAP['/src/assets/images/tshirt_mockup_1794023817755.jpg'],
     defaultCaption: 'คอลเลกชันใหม่ สไตล์สตรีท ลิมิเต็ดอิดิชัน 🔥 สั่งทำพิเศษได้เลย!',
     music: 'ethereal! (Sped Up) - TikTok Sound',
     type: 'tshirt' as ProductType
@@ -74,8 +76,8 @@ const SAMPLE_GALLERY_VIDEOS = [
   {
     id: 'sample-techcase',
     name: 'รีวิวเคสมือถือกันกระแทก',
-    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
-    poster: '/src/assets/images/phonecase_mockup_1794023818273.jpg',
+    url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/friday.mp4',
+    poster: BUNDLED_ASSET_MAP['/src/assets/images/phonecase_mockup_1794023818273.jpg'],
     defaultCaption: 'ทดสอบความทนทาน ลายคลื่นไซเคเดลิก 📱 สีคมชัดไม่ลอก!',
     music: 'Bangkok City Neon Vibes',
     type: 'phonecase' as ProductType
@@ -83,8 +85,8 @@ const SAMPLE_GALLERY_VIDEOS = [
   {
     id: 'sample-totebag',
     name: 'กระเป๋าผ้าแคนวาส มินิมอล',
-    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyBlazes.mp4',
-    poster: '/src/assets/images/totebag_mockup_1794023818674.jpg',
+    url: 'https://vjs.zencdn.net/v/oceans.mp4',
+    poster: BUNDLED_ASSET_MAP['/src/assets/images/totebag_mockup_1794023818674.jpg'],
     defaultCaption: 'กระเป๋าผ้าแคนวาสจุของได้เยอะ แมตช์ง่ายกับทุกลุค 👜',
     music: 'Lo-Fi Sunset Café Chill',
     type: 'totebag' as ProductType
@@ -92,8 +94,8 @@ const SAMPLE_GALLERY_VIDEOS = [
   {
     id: 'sample-artisan',
     name: 'เบื้องหลังงานผลิตสตูดิโอ',
-    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
-    poster: '/src/assets/images/creator_avatar_1794023819826.jpg',
+    url: 'https://media.w3.org/2010/05/sintel/trailer.mp4',
+    poster: BUNDLED_ASSET_MAP['/src/assets/images/creator_avatar_1794023819826.jpg'],
     defaultCaption: 'เบื้องหลังการพิมพ์ลายคัสตอม ใส่ใจทุกชิ้นงาน ✨ #TokTak',
     music: 'Acoustic Morning Beat',
     type: 'tshirt' as ProductType
@@ -131,6 +133,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({
 
   // Video Media States
   const [videoSrc, setVideoSrc] = useState<string>('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [posterUrl, setPosterUrl] = useState<string>('');
   const [hasLoadedMedia, setHasLoadedMedia] = useState<boolean>(false);
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -191,6 +194,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({
       setActiveScreen('studio');
       setHasLoadedMedia(false);
       setVideoSrc('');
+      setSelectedFile(null);
     }
   }, [isOpen]);
 
@@ -275,6 +279,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       stopCamera();
+      setSelectedFile(file);
       const blobUrl = URL.createObjectURL(file);
       setVideoSrc(blobUrl);
       setHasLoadedMedia(true);
@@ -285,22 +290,12 @@ export const CreateModal: React.FC<CreateModalProps> = ({
         videoPreviewRef.current.src = blobUrl;
         videoPreviewRef.current.play().catch(() => {});
       }
-      // If file is <= 2.5MB, convert to Data URL so it survives page reloads & account switching
-      if (file.size <= 2.5 * 1024 * 1024) {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          const dataUrl = ev.target?.result;
-          if (typeof dataUrl === 'string' && dataUrl.startsWith('data:')) {
-            setVideoSrc(dataUrl);
-          }
-        };
-        reader.readAsDataURL(file);
-      }
       showToast('📁 โหลดวิดีโอจากแกลเลอรีสำเร็จ');
     }
+    e.target.value = '';
   };
 
-  // Extract thumbnail snapshot using offscreen canvas
+  // Extract thumbnail snapshot using offscreen canvas (compressed for safe localStorage persistence)
   const extractThumbnailFromVideo = (videoUrl: string) => {
     try {
       const v = document.createElement('video');
@@ -311,13 +306,17 @@ export const CreateModal: React.FC<CreateModalProps> = ({
       v.currentTime = 0.1;
       v.onloadeddata = () => {
         try {
+          const maxW = 360;
+          const rawW = v.videoWidth || 360;
+          const rawH = v.videoHeight || 640;
+          const scale = Math.min(1, maxW / rawW);
           const canvas = document.createElement('canvas');
-          canvas.width = v.videoWidth || 360;
-          canvas.height = v.videoHeight || 640;
+          canvas.width = Math.max(1, Math.round(rawW * scale));
+          canvas.height = Math.max(1, Math.round(rawH * scale));
           const ctx = canvas.getContext('2d');
           if (ctx) {
             ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-            const thumb = canvas.toDataURL('image/jpeg', 0.85);
+            const thumb = canvas.toDataURL('image/jpeg', 0.72);
             setPosterUrl(thumb);
           }
         } catch {
@@ -332,6 +331,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({
   // Select Sample Template
   const handleSelectTemplate = (sample: typeof SAMPLE_GALLERY_VIDEOS[0]) => {
     stopCamera();
+    setSelectedFile(null);
     setVideoSrc(sample.url);
     setPosterUrl(sample.poster);
     setHasLoadedMedia(true);
@@ -462,6 +462,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({
       caption: caption.trim() || 'คลิปใหม่สร้างสรรค์จาก TokTak 🔥 #TokTak',
       music: selectedMusic,
       videoUrl: finalVideoUrl,
+      videoFile: selectedFile,
       posterUrl: finalPoster,
       linkedProduct: pinnedProduct || undefined,
       linkedProductType: pinnedProduct ? pinnedProduct.productType : undefined,
@@ -484,6 +485,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({
       setActiveScreen('studio');
       setHasLoadedMedia(false);
       setVideoSrc('');
+      setSelectedFile(null);
     }, 1200);
   };
 

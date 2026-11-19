@@ -37,9 +37,12 @@ import {
   Volume2,
   VolumeX,
   Users,
-  RefreshCw
+  RefreshCw,
+  MessageCircle,
+  Bookmark
 } from 'lucide-react';
 import { CartItem, ProductItem, VideoItem, UserProfile } from '../types';
+import { BUNDLED_ASSET_MAP } from '../data/mockData';
 
 export const GoogleIcon = ({ className = 'w-5 h-5' }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
@@ -75,8 +78,14 @@ interface ProfileViewProps {
   onOpenAdminBackend?: () => void;
   onOpenTokTakShop?: () => void;
   onPlayVideo?: (video: VideoItem) => void;
+  onLikeVideo?: (videoId: string) => void;
+  onSaveVideo?: (videoId: string) => void;
+  onOpenComments?: (video: VideoItem) => void;
+  onOpenShare?: (video: VideoItem) => void;
+  onSelectProduct?: (product: ProductItem) => void;
   onDeleteVideo?: (videoId: string) => void;
   onToggleVideoPrivacy?: (videoId: string) => void;
+  onVideoModalOpenChange?: (isOpen: boolean) => void;
   myProducts: ProductItem[];
   myVideos: VideoItem[];
 }
@@ -94,8 +103,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onOpenAdminBackend,
   onOpenTokTakShop,
   onPlayVideo,
+  onLikeVideo,
+  onSaveVideo,
+  onOpenComments,
+  onOpenShare,
+  onSelectProduct,
   onDeleteVideo,
   onToggleVideoPrivacy,
+  onVideoModalOpenChange,
   myProducts,
   myVideos
 }) => {
@@ -116,40 +131,67 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [customEmailInput, setCustomEmailInput] = useState('');
   const [showCustomEmailBox, setShowCustomEmailBox] = useState(false);
   const [selectedVideoForPlay, setSelectedVideoForPlay] = useState<VideoItem | null>(null);
-  const [isModalPlaying, setIsModalPlaying] = useState(true);
+  const [isModalPlaying, setIsModalPlaying] = useState(false);
   const [isModalMuted, setIsModalMuted] = useState(true);
+  const [modalHeartBurst, setModalHeartBurst] = useState(false);
   const modalVideoRef = useRef<HTMLVideoElement | null>(null);
+  const modalTapTimerRef = useRef<number | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
-  // Edit form states
   const [editName, setEditName] = useState(currentUser?.name || '');
   const [editBio, setEditBio] = useState(currentUser?.bio || '');
   const [editHandle, setEditHandle] = useState(currentUser?.handle || '');
 
-  // Sync edit fields and close stale video player whenever account switches
   useEffect(() => {
     setEditName(currentUser?.name || '');
     setEditBio(currentUser?.bio || '');
     setEditHandle(currentUser?.handle || '');
-    setSelectedVideoForPlay(null);
   }, [currentUser?.email, currentUser?.name, currentUser?.bio, currentUser?.handle]);
 
-  // Force immediate autoplay whenever a clip opens in Fullscreen Video Player
+  useEffect(() => {
+    setSelectedVideoForPlay(null);
+  }, [currentUser?.email]);
+
+  useEffect(() => {
+    onVideoModalOpenChange?.(Boolean(selectedVideoForPlay));
+    return () => {
+      onVideoModalOpenChange?.(false);
+    };
+  }, [selectedVideoForPlay, onVideoModalOpenChange]);
+
+  useEffect(() => {
+    if (!selectedVideoForPlay) return;
+    const updated = myVideos.find((v) => v.id === selectedVideoForPlay.id);
+    if (
+      updated &&
+      (updated.videoUrl !== selectedVideoForPlay.videoUrl ||
+        updated.isLiked !== selectedVideoForPlay.isLiked ||
+        updated.likesCount !== selectedVideoForPlay.likesCount ||
+        updated.isSaved !== selectedVideoForPlay.isSaved ||
+        updated.commentsCount !== selectedVideoForPlay.commentsCount ||
+        updated.sharesCount !== selectedVideoForPlay.sharesCount ||
+        updated.isPrivate !== selectedVideoForPlay.isPrivate)
+    ) {
+      setSelectedVideoForPlay(updated);
+    }
+  }, [myVideos, selectedVideoForPlay]);
+
   useEffect(() => {
     if (selectedVideoForPlay && modalVideoRef.current) {
       const el = modalVideoRef.current;
-      el.muted = true;
       el.defaultMuted = true;
       el.playsInline = true;
+      el.setAttribute('playsinline', 'true');
+      el.setAttribute('webkit-playsinline', 'true');
+      el.setAttribute('x5-playsinline', 'true');
+      el.setAttribute('x5-video-player-type', 'h5');
+      el.muted = true;
       el.currentTime = 0;
       setIsModalMuted(true);
-      const p = el.play();
-      if (p !== undefined) {
-        p.then(() => setIsModalPlaying(true)).catch(() => {
-          el.muted = true;
-          el.play().then(() => setIsModalPlaying(true)).catch(() => setIsModalPlaying(false));
-        });
-      }
+      setIsModalPlaying(false);
+      el.play()
+        .then(() => setIsModalPlaying(true))
+        .catch(() => setIsModalPlaying(false));
     }
   }, [selectedVideoForPlay?.id, selectedVideoForPlay?.videoUrl]);
 
@@ -158,19 +200,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       'goldenrivercity@gmail.com': {
         email: 'goldenrivercity@gmail.com',
         name: 'Golden River City',
-        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&auto=format&fit=crop&q=95',
+        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop&q=95',
         role: 'superadmin'
       },
       'admin@tokdesign.com': {
         email: 'admin@tokdesign.com',
         name: 'Admin TokDesign',
-        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=800&auto=format&fit=crop&q=95',
+        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&auto=format&fit=crop&q=95',
         role: 'admin'
       },
       'customer@gmail.com': {
         email: 'customer@gmail.com',
         name: 'สมชาย ใจดี',
-        avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=800&auto=format&fit=crop&q=95',
+        avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=800&auto=format&fit=crop&q=95',
         role: 'user'
       }
     };
@@ -180,19 +222,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         const parsed = JSON.parse(raw);
         Object.keys(parsed).forEach((k) => {
           const p = parsed[k];
-          if (p && p.email) {
+          if (p && p.email && !String(p.email).includes('***')) {
             const norm = p.email.trim().toLowerCase();
+            const safeAvatar = p.avatar && !String(p.avatar).includes('***') ? p.avatar : defaults[norm]?.avatar;
             defaults[norm] = {
               email: norm,
               name: p.name || norm,
-              avatar: p.avatar,
+              avatar: safeAvatar,
               role: p.role
             };
           }
         });
       }
     } catch {
-      // ignore storage errors
+      // ignore
     }
     return Object.values(defaults);
   };
@@ -213,13 +256,36 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     const reader = new FileReader();
     reader.onload = (event) => {
       const dataUrl = event.target?.result as string;
-      if (dataUrl) {
+      if (!dataUrl) return;
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const maxDim = 512;
+          const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const compressed = canvas.toDataURL('image/jpeg', 0.85);
+            onUpdateProfile({ avatar: compressed });
+            setShowAvatarModal(false);
+            return;
+          }
+        } catch {
+          // fallback to raw dataUrl
+        }
         onUpdateProfile({ avatar: dataUrl });
         setShowAvatarModal(false);
-      }
+      };
+      img.onerror = () => {
+        onUpdateProfile({ avatar: dataUrl });
+        setShowAvatarModal(false);
+      };
+      img.src = dataUrl;
     };
     reader.readAsDataURL(file);
-    // reset input
     e.target.value = '';
   };
 
@@ -249,7 +315,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, 400, 400);
 
-      // Circles
       ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
       ctx.beginPath();
       ctx.arc(310, 90, 130, 0, Math.PI * 2);
@@ -259,14 +324,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       ctx.arc(90, 310, 110, 0, Math.PI * 2);
       ctx.fill();
 
-      // Border ring
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
       ctx.lineWidth = 10;
       ctx.beginPath();
       ctx.arc(200, 200, 160, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Initial
       const name = currentUser?.name || 'Golden River';
       const initial = (name.charAt(0) || 'G').toUpperCase();
       ctx.fillStyle = '#ffffff';
@@ -275,7 +338,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       ctx.textBaseline = 'middle';
       ctx.fillText(initial, 200, 195);
 
-      // Badge
       ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
       ctx.beginPath();
       ctx.roundRect(110, 310, 180, 42, 21);
@@ -311,8 +373,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
   };
 
-  // Helper to resolve an immediate, persistent image thumbnail for any clip
   const getClipThumbnail = (vid: VideoItem): string => {
+    const fallbackImg = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop';
     if (
       vid.posterUrl &&
       !vid.posterUrl.endsWith('.mp4') &&
@@ -320,21 +382,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       !vid.posterUrl.endsWith('.webm') &&
       !vid.posterUrl.startsWith('data:video')
     ) {
-      return vid.posterUrl;
+      return BUNDLED_ASSET_MAP[vid.posterUrl] || vid.posterUrl;
     }
     if (vid.linkedProduct?.image) {
-      return vid.linkedProduct.image;
+      return BUNDLED_ASSET_MAP[vid.linkedProduct.image] || vid.linkedProduct.image;
     }
-    if (vid.linkedProduct?.productType === 'phonecase') {
-      return '/src/assets/images/phonecase_mockup_1794023818273.jpg';
-    }
-    if (vid.linkedProduct?.productType === 'totebag') {
-      return '/src/assets/images/totebag_mockup_1794023818674.jpg';
-    }
-    return '/src/assets/images/tshirt_mockup_1794023817755.jpg';
+    return fallbackImg;
   };
 
-  // Helper to format clean video caption without unwanted "เสื้อยืด" label
   const getCleanCaption = (vid: VideoItem): string => {
     if (vid.caption) {
       const stripped = vid.caption
@@ -350,24 +405,28 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     return 'คลิปวิดีโอ TokTak';
   };
 
-  const getSafeVideoUrl = (url?: string) => {
-    if (!url) return 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
-    if (url.startsWith('blob:') || url.startsWith('data:') || url.includes('#')) {
-      return url;
+  // คืนค่าลิงก์วิดีโอจริงเท่านั้น (รอ idb:// หากกำลังโหลด และไม่นำคลิปตัวอย่างมาทับ)
+  const getSafeVideoUrl = (url?: string): string | undefined => {
+    if (!url || url.trim() === '' || url.startsWith('idb://') || url.includes('mov_bbb.mp4')) {
+      return undefined;
     }
-    return `${url}#t=0.001`;
+    return url;
+  };
+
+  const handleVideoLoadError = (isModal = false) => {
+    if (isModal) {
+      setIsModalPlaying(false);
+    }
   };
 
   const currentEmail = (currentUser?.email || '').trim().toLowerCase();
 
-  // Helper function checking ownership strictly by authorEmail, ownerEmail, or creatorEmail
   const isVideoOwnedByCurrent = (v: VideoItem): boolean => {
     if (!currentEmail) return false;
     const author = (v.authorEmail || v.ownerEmail || v.creatorEmail || '').trim().toLowerCase();
     if (author) {
       return author === currentEmail;
     }
-    // Fallback for default goldenrivercity account
     if (currentEmail === 'goldenrivercity@gmail.com') {
       return (
         v.id.startsWith('clip-') ||
@@ -381,12 +440,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     );
   };
 
-  // 1. คลิปของฉัน (My Clips): strictly videos where authorEmail matches currentUser.email, excluding private/draft
   const myClips = myVideos.filter(
     (v) => isVideoOwnedByCurrent(v) && !v.isPrivate && !v.isDraft
   );
 
-  // 2. คลิปที่ถูกใจ (Liked Videos): videos that this user account has liked
   const likedClips = myVideos.filter((v) => {
     if (!currentEmail) return false;
     if (v.likedByEmails && v.likedByEmails.length > 0) {
@@ -398,21 +455,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     return Boolean(v.isLiked && isVideoOwnedByCurrent(v));
   });
 
-  // 3. คลิปส่วนตัว / ร่าง (Private / Drafts): owned by this user and marked isPrivate or isDraft
   const privateDraftClips = myVideos.filter(
     (v) => isVideoOwnedByCurrent(v) && (v.isPrivate === true || v.isDraft === true)
   );
 
-  // Backward compatibility alias for any existing reference
-  const userClips = myClips;
-
-  // -------------------------------------------------------------
-  // 1. IF NOT LOGGED IN: SHOW GOOGLE LOGIN VIEW
-  // -------------------------------------------------------------
   if (!currentUser) {
     return (
       <div className="w-full min-h-[calc(100vh-3.5rem)] pb-24 bg-gradient-to-b from-slate-50 via-white to-slate-100 text-slate-900 select-none flex flex-col items-center justify-between p-4">
-        {/* Top brand header */}
         <div className="w-full text-center pt-3 pb-2">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-[11px] font-medium mb-3">
             <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
@@ -426,10 +475,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </p>
         </div>
 
-        {/* Center Illustration / Card */}
         <div className="w-full max-w-sm my-auto space-y-4">
-          {/* Quick 1-Tap Google Login Card for current account */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm hover:border-slate-300 transition relative overflow-hidden group">
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm relative overflow-hidden group">
             <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-blue-50 via-rose-50 to-transparent rounded-bl-full pointer-events-none opacity-60" />
 
             <div className="flex items-center gap-3">
@@ -473,7 +520,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </button>
           </div>
 
-          {/* Standard One-Click Google Button */}
           <div className="space-y-2">
             <button
               onClick={() => handleGoogleLoginClick('goldenrivercity@gmail.com', 'Golden River City')}
@@ -484,7 +530,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               <span>เข้าสู่ระบบด้วย Google (Sign in with Google)</span>
             </button>
 
-            {/* Quick Role Switchers to easily test and verify permissions */}
             <div className="pt-2 border-t border-slate-100">
               <span className="text-[10px] font-bold text-slate-400 block mb-1.5 text-center">
                 เลือกโปรไฟล์เพื่อทดสอบสิทธิ์ (Role Switcher):
@@ -540,7 +585,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               </div>
             </div>
 
-            {/* Toggle custom google email */}
             {!showCustomEmailBox ? (
               <button
                 onClick={() => setShowCustomEmailBox(true)}
@@ -564,7 +608,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     type="email"
                     value={customEmailInput}
                     onChange={(e) => setCustomEmailInput(e.target.value)}
-                    placeholder="example@gmail.com"
+                    placeholder="your.email@gmail.com"
                     className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:bg-white text-slate-900"
                   />
                   <button
@@ -583,42 +627,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               </div>
             )}
           </div>
-
-          {/* Feature list benefits */}
-          <div className="pt-2 border-t border-slate-200/80 space-y-2">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block text-center">
-              สิทธิประโยชน์เมื่อเชื่อมต่อ Google
-            </span>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="p-2.5 bg-white/70 rounded-xl border border-slate-200/60 flex items-start gap-2">
-                <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-                <span className="text-[11px] text-slate-600 leading-tight">
-                  บันทึกผลงานออกแบบคัสตอมในบัญชีคุณ
-                </span>
-              </div>
-              <div className="p-2.5 bg-white/70 rounded-xl border border-slate-200/60 flex items-start gap-2">
-                <Video className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
-                <span className="text-[11px] text-slate-600 leading-tight">
-                  โพสต์คลิปและจัดการคอนเทนต์ของฉัน
-                </span>
-              </div>
-              <div className="p-2.5 bg-white/70 rounded-xl border border-slate-200/60 flex items-start gap-2">
-                <ShoppingCart className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                <span className="text-[11px] text-slate-600 leading-tight">
-                  ติดตามออเดอร์ในตะกร้าและสั่งซื้อ
-                </span>
-              </div>
-              <div className="p-2.5 bg-white/70 rounded-xl border border-slate-200/60 flex items-start gap-2">
-                <ShieldCheck className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
-                <span className="text-[11px] text-slate-600 leading-tight">
-                  ปลอดภัย ป้องกันข้อมูลสูญหาย
-                </span>
-              </div>
-            </div>
-          </div>
         </div>
 
-        {/* Footer note */}
         <p className="text-[10px] text-slate-400 text-center max-w-xs mt-3">
           การเข้าสู่ระบบถือว่ายอมรับเงื่อนไขการใช้งานและนโยบายความเป็นส่วนตัว
         </p>
@@ -626,12 +636,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     );
   }
 
-  // -------------------------------------------------------------
-  // 2. IF LOGGED IN: SHOW REAL USER'S PROFILE
-  // -------------------------------------------------------------
   return (
     <div className="w-full min-h-full pb-32 bg-slate-50 text-slate-900">
-      {/* Top Profile Header */}
       <div className="pt-4 px-4 pb-3 border-b border-slate-200 bg-white shadow-xs">
         <div className="flex items-center justify-between mb-3">
           <button
@@ -691,9 +697,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         </div>
 
-        {/* Compact User Info */}
         <div className="flex flex-col items-center text-center">
-          {/* Hidden file input for avatar upload */}
           <input
             ref={avatarInputRef}
             type="file"
@@ -723,7 +727,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               </div>
             )}
 
-            {/* Hover overlay indicator on image */}
             <div
               onClick={() => setShowAvatarModal(true)}
               className="absolute inset-0 rounded-full bg-black/40 text-white opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center cursor-pointer transition text-[8px] font-semibold pointer-events-none group-hover:pointer-events-auto"
@@ -732,7 +735,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               <span>เปลี่ยนรูป</span>
             </div>
 
-            {/* Camera badge button */}
             <button
               onClick={() => setShowAvatarModal(true)}
               title="เปลี่ยนรูปโปรไฟล์"
@@ -767,7 +769,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               <span>{currentUser.email}</span>
             </div>
 
-            {/* Quick helper button to upload actual face photo */}
             <button
               onClick={() => avatarInputRef.current?.click()}
               className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[9px] font-semibold transition active:scale-95"
@@ -781,7 +782,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             {currentUser.bio || 'ยินดีต้อนรับสู่โปรไฟล์ของฉันใน TokDesign'}
           </p>
 
-          {/* Followers / Following Stats */}
           <div className="flex items-center gap-5 mt-2 text-center">
             <div>
               <span className="text-xs font-bold text-slate-900 tabular-nums">
@@ -805,7 +805,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
           </div>
 
-          {/* Action Buttons in Compact Single Row */}
           <div className="flex items-center gap-1.5 mt-2.5 w-full max-w-xs">
             <button
               onClick={() => setShowEditModal(true)}
@@ -843,10 +842,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       </div>
 
-      {/* Tabs Switcher: Clean horizontal scrollable tabs matching TikTok/Instagram */}
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 shadow-xs">
         <div className="flex items-center overflow-x-auto no-scrollbar scroll-smooth px-1">
-          {/* Tab 1: คลิปของฉัน */}
           <button
             onClick={() => setProfileTab('my_clips')}
             className={`py-2 px-2.5 flex items-center justify-center gap-1 text-[11px] font-medium transition shrink-0 relative ${
@@ -863,7 +860,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             )}
           </button>
 
-          {/* Tab 2: คลิปที่ถูกใจ */}
           <button
             onClick={() => setProfileTab('liked_clips')}
             className={`py-2 px-2.5 flex items-center justify-center gap-1 text-[11px] font-medium transition shrink-0 relative ${
@@ -880,7 +876,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             )}
           </button>
 
-          {/* Tab 3: คลิปส่วนตัว / ร่าง */}
           <button
             onClick={() => setProfileTab('private_drafts')}
             className={`py-2 px-2.5 flex items-center justify-center gap-1 text-[11px] font-medium transition shrink-0 relative ${
@@ -899,7 +894,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             )}
           </button>
 
-          {/* Tab 4: สินค้า */}
           <button
             onClick={() => setProfileTab('products')}
             className={`py-2 px-2.5 flex items-center justify-center gap-1 text-[11px] font-medium transition shrink-0 relative ${
@@ -916,7 +910,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             )}
           </button>
 
-          {/* Tab 5: ตะกร้า */}
           <button
             onClick={() => setProfileTab('cart')}
             className={`py-2 px-2.5 flex items-center justify-center gap-1 text-[11px] font-medium transition shrink-0 relative ${
@@ -935,7 +928,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             )}
           </button>
 
-          {/* Tab 6: บัญชี */}
           <button
             onClick={() => setProfileTab('account')}
             className={`py-2 px-2.5 flex items-center justify-center gap-1 text-[11px] font-medium transition shrink-0 relative ${
@@ -951,9 +943,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       </div>
 
-      {/* Tab Contents */}
       <div className="p-3">
-        {/* 1. คลิปของฉัน (My Clips) - 3-Column Grid */}
         {profileTab === 'my_clips' && (
           <div>
             <div className="flex items-center justify-between pb-2 mb-2 px-1">
@@ -984,7 +974,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       }}
                       className="relative aspect-[9/16] bg-slate-900 rounded-xl overflow-hidden shadow-xs cursor-pointer hover:opacity-95 transition-all group"
                     >
-                      {/* 1. Permanent Image Thumbnail: rendered eagerly so 0ms grey state */}
                       <img
                         src={thumbUrl}
                         alt={vid.caption || 'ตัวอย่างวิดีโอ'}
@@ -993,8 +982,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 pointer-events-none"
                       />
 
-                      {/* 2. Interactive Video Element (Tap plays directly & opens Fullscreen Player) */}
                       <video
+                        key={`${vid.id}-${getSafeVideoUrl(vid.videoUrl) || 'hydrating'}`}
+                        ref={(el) => {
+                          if (el) {
+                            el.setAttribute('playsinline', 'true');
+                            el.setAttribute('webkit-playsinline', 'true');
+                            el.setAttribute('x5-playsinline', 'true');
+                            el.setAttribute('x5-video-player-type', 'h5');
+                          }
+                        }}
                         src={getSafeVideoUrl(vid.videoUrl)}
                         poster={thumbUrl}
                         preload="metadata"
@@ -1002,6 +999,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         muted
                         loop
                         className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 opacity-95 group-hover:opacity-100"
+                        onError={() => handleVideoLoadError(false)}
                         onClick={(e) => {
                           e.stopPropagation();
                           const el = e.currentTarget;
@@ -1018,21 +1016,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                           e.currentTarget.pause();
                           e.currentTarget.currentTime = 0;
                         }}
-                        onError={(e) => {
-                          const target = e.currentTarget;
-                          if (!target.src.includes('ForBiggerBlazes.mp4')) {
-                            target.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4#t=0.001';
-                          }
-                        }}
                       />
 
-                      {/* Top badge */}
                       <div className="absolute top-1.5 left-1.5 z-20 flex items-center gap-1 bg-black/60 backdrop-blur-xs px-1.5 py-0.5 rounded-md text-white text-[9px] font-medium pointer-events-none">
                         <Play className="w-2 h-2 fill-white text-white" />
                         <span>คลิป</span>
                       </div>
 
-                      {/* Corner Action Buttons: Permanently visible Delete & Lock buttons */}
                       <div className="absolute top-1.5 right-1.5 z-30 flex items-center gap-1 pointer-events-auto">
                         {onToggleVideoPrivacy && (
                           <button
@@ -1066,7 +1056,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         )}
                       </div>
 
-                      {/* Bottom Caption & Stat Overlay */}
                       <div className="absolute bottom-0 inset-x-0 p-1.5 bg-gradient-to-t from-black/90 via-black/50 to-transparent text-white pointer-events-none z-10">
                         <div className="flex items-center justify-between text-[10px] text-white/90 font-medium">
                           <span className="flex items-center gap-0.5 drop-shadow-xs font-bold">
@@ -1110,7 +1099,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         )}
 
-        {/* 2. คลิปที่ถูกใจ (Liked Videos) - 3-Column Grid */}
         {profileTab === 'liked_clips' && (
           <div>
             <div className="flex items-center justify-between pb-2 mb-2 px-1">
@@ -1140,6 +1128,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 pointer-events-none"
                       />
                       <video
+                        key={`${vid.id}-${getSafeVideoUrl(vid.videoUrl) || 'hydrating'}`}
+                        ref={(el) => {
+                          if (el) {
+                            el.setAttribute('playsinline', 'true');
+                            el.setAttribute('webkit-playsinline', 'true');
+                            el.setAttribute('x5-playsinline', 'true');
+                            el.setAttribute('x5-video-player-type', 'h5');
+                          }
+                        }}
                         src={getSafeVideoUrl(vid.videoUrl)}
                         poster={thumbUrl}
                         preload="metadata"
@@ -1147,6 +1144,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         muted
                         loop
                         className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 opacity-95 group-hover:opacity-100"
+                        onError={() => handleVideoLoadError(false)}
                         onClick={(e) => {
                           e.stopPropagation();
                           e.currentTarget.muted = true;
@@ -1210,7 +1208,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         )}
 
-        {/* 3. คลิปส่วนตัว / ร่าง (Private / Drafts) - 3-Column Grid */}
         {profileTab === 'private_drafts' && (
           <div>
             <div className="flex items-center justify-between pb-2 mb-2 px-1">
@@ -1249,6 +1246,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 pointer-events-none"
                       />
                       <video
+                        key={`${vid.id}-${getSafeVideoUrl(vid.videoUrl) || 'hydrating'}`}
+                        ref={(el) => {
+                          if (el) {
+                            el.setAttribute('playsinline', 'true');
+                            el.setAttribute('webkit-playsinline', 'true');
+                            el.setAttribute('x5-playsinline', 'true');
+                            el.setAttribute('x5-video-player-type', 'h5');
+                          }
+                        }}
                         src={getSafeVideoUrl(vid.videoUrl)}
                         poster={thumbUrl}
                         preload="metadata"
@@ -1256,6 +1262,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         muted
                         loop
                         className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 opacity-95 group-hover:opacity-100"
+                        onError={() => handleVideoLoadError(false)}
                         onClick={(e) => {
                           e.stopPropagation();
                           e.currentTarget.muted = true;
@@ -1276,7 +1283,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         <span>{vid.isDraft ? 'ร่าง' : 'ส่วนตัว'}</span>
                       </div>
 
-                      {/* Action buttons: Unlock and Delete */}
                       <div className="absolute top-1.5 right-1.5 z-30 flex items-center gap-1 pointer-events-auto">
                         {onToggleVideoPrivacy && (
                           <button
@@ -1345,7 +1351,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         )}
 
-        {/* 2. My Products */}
         {profileTab === 'products' && (
           <div className="space-y-2.5">
             {myProducts.map((prod) => (
@@ -1376,7 +1381,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         )}
 
-        {/* 3. Order Cart */}
         {profileTab === 'cart' && (
           <div>
             {isCheckoutSuccess ? (
@@ -1433,7 +1437,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   ))}
                 </div>
 
-                {/* Cart Summary & Checkout */}
                 <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-2 shadow-xs">
                   <div className="flex items-center justify-between text-xs text-slate-600">
                     <span>ยอดรวมค่าสินค้า</span>
@@ -1461,7 +1464,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         )}
 
-        {/* 4. Google Account Details */}
         {profileTab === 'account' && (
           <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 shadow-xs">
             <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
@@ -1551,7 +1553,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         )}
       </div>
 
-      {/* Edit Profile Modal */}
       {showEditModal && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
           <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150">
@@ -1628,7 +1629,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       )}
 
-      {/* Change Avatar Modal */}
       {showAvatarModal && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
           <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150">
@@ -1646,11 +1646,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
 
             <div className="p-4 space-y-4">
-              {/* Current Avatar Preview */}
               <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200/80">
                 <div className="relative">
                   <img
-                    src={currentUser.avatar || '/src/assets/images/creator_avatar_1794023819826.jpg'}
+                    src={currentUser.avatar || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop'}
                     alt="Current"
                     className="w-14 h-14 rounded-full object-cover border-2 border-blue-500 shadow-xs"
                   />
@@ -1663,7 +1662,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </div>
               </div>
 
-              {/* Action Buttons: Device Upload & AI Generation */}
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -1686,7 +1684,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </button>
               </div>
 
-              {/* Preset Avatars Selection */}
               <div>
                 <span className="text-[11px] font-semibold text-slate-700 block mb-2">
                   หรือเลือกภาพโปรไฟล์สำเร็จรูป
@@ -1695,27 +1692,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   {[
                     {
                       name: 'หน้าตรงคมชัด HD',
-                      url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&auto=format&fit=crop&q=95'
+                      url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop&q=95'
                     },
                     {
                       name: 'หนุ่มเอเชีย (Studio)',
-                      url: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=800&auto=format&fit=crop&q=95'
+                      url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&auto=format&fit=crop&q=95'
                     },
                     {
                       name: 'ครีเอเตอร์สมาร์ท (HD)',
                       url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=800&auto=format&fit=crop&q=95'
-                    },
-                    {
-                      name: 'สตรีทแวร์ดีไซเนอร์',
-                      url: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=800&auto=format&fit=crop&q=95'
-                    },
-                    {
-                      name: 'นักธุรกิจมืออาชีพ',
-                      url: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=800&auto=format&fit=crop&q=95'
-                    },
-                    {
-                      name: 'สตูดิโอ Official',
-                      url: '/src/assets/images/creator_avatar_1794023819826.jpg'
                     }
                   ].map((preset, idx) => {
                     const isSelected = currentUser.avatar === preset.url;
@@ -1751,7 +1736,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </div>
               </div>
 
-              {/* Close Button */}
               <button
                 type="button"
                 onClick={() => setShowAvatarModal(false)}
@@ -1764,7 +1748,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       )}
 
-      {/* Instant Switch Account Modal (Zero blocking, real-time profile & clips update) */}
       {showSwitchAccountModal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
           <div className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in slide-in-from-bottom-4 duration-200">
@@ -1800,7 +1783,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       }`}
                     >
                       <img
-                        src={acc.avatar || '/src/assets/images/creator_avatar_1794023819826.jpg'}
+                        src={acc.avatar || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop'}
                         alt={acc.name}
                         className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0"
                       />
@@ -1839,7 +1822,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     type="email"
                     value={switchCustomEmail}
                     onChange={(e) => setSwitchCustomEmail(e.target.value)}
-                    placeholder="yourname@gmail.com"
+                    placeholder="new.account@gmail.com"
                     className="flex-1 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:bg-white text-slate-900"
                   />
                   <button
@@ -1864,12 +1847,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       )}
 
-      {/* Video Player & Downloader Modal (True Mobile Fullscreen) */}
       {selectedVideoForPlay && (
-        <div className="fixed inset-0 z-50 bg-black flex flex-col justify-between select-none animate-in fade-in duration-200">
-          {/* Modal Top Header with ‹ โปรไฟล์ Back Button & Sound Toggle */}
-          <div className="absolute top-0 inset-x-0 z-30 p-3.5 flex items-center justify-between text-white bg-gradient-to-b from-black/85 via-black/40 to-transparent">
+        <div className="fixed inset-0 z-[70] bg-black flex flex-col justify-between select-none animate-in fade-in duration-200">
+          <div className="absolute top-0 inset-x-0 z-30 p-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] flex items-center justify-between text-white bg-gradient-to-b from-black/85 via-black/40 to-transparent">
             <button
+              type="button"
               onClick={() => setSelectedVideoForPlay(null)}
               className="px-3 py-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center gap-1 text-xs font-bold border border-white/25 backdrop-blur-md active:scale-95 transition shadow-lg"
             >
@@ -1889,36 +1871,73 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     setIsModalMuted(nextMuted);
                   }
                 }}
-                className="w-7 h-7 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center border border-white/20 transition active:scale-95"
+                className="w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center border border-white/20 transition active:scale-95"
                 title={isModalMuted ? 'เปิดเสียง' : 'ปิดเสียง'}
               >
-                {isModalMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                {isModalMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
               </button>
               <button
+                type="button"
                 onClick={() => setSelectedVideoForPlay(null)}
-                className="w-7 h-7 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center border border-white/20 transition active:scale-95"
+                className="w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center border border-white/20 transition active:scale-95"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          {/* Main Fullscreen Video Screen */}
           <div
             onClick={() => {
-              if (!modalVideoRef.current) return;
-              if (modalVideoRef.current.paused) {
-                modalVideoRef.current.play().then(() => setIsModalPlaying(true)).catch(() => {});
-              } else {
-                modalVideoRef.current.pause();
-                setIsModalPlaying(false);
+              if (modalTapTimerRef.current) {
+                window.clearTimeout(modalTapTimerRef.current);
+                modalTapTimerRef.current = null;
+                if (onLikeVideo && !selectedVideoForPlay.isLiked) {
+                  onLikeVideo(selectedVideoForPlay.id);
+                }
+                setModalHeartBurst(true);
+                window.setTimeout(() => setModalHeartBurst(false), 750);
+                return;
               }
+              modalTapTimerRef.current = window.setTimeout(() => {
+                modalTapTimerRef.current = null;
+                if (!modalVideoRef.current) return;
+                if (modalVideoRef.current.paused) {
+                  modalVideoRef.current.setAttribute('playsinline', 'true');
+                  modalVideoRef.current.setAttribute('webkit-playsinline', 'true');
+                  modalVideoRef.current.setAttribute('x5-playsinline', 'true');
+                  modalVideoRef.current.setAttribute('x5-video-player-type', 'h5');
+                  modalVideoRef.current.play().then(() => setIsModalPlaying(true)).catch(() => {
+                    if (modalVideoRef.current) {
+                      modalVideoRef.current.muted = true;
+                      modalVideoRef.current.play().then(() => setIsModalPlaying(true)).catch(() => {});
+                    }
+                  });
+                } else {
+                  modalVideoRef.current.pause();
+                  setIsModalPlaying(false);
+                }
+              }, 220);
             }}
             className="relative w-full h-full bg-black flex items-center justify-center overflow-hidden cursor-pointer"
           >
+            <img
+              src={getClipThumbnail(selectedVideoForPlay)}
+              alt={selectedVideoForPlay.caption || 'ภาพปกวิดีโอ'}
+              className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none"
+            />
             <video
-              key={selectedVideoForPlay.id}
-              ref={modalVideoRef}
+              key={`${selectedVideoForPlay.id}-${getSafeVideoUrl(selectedVideoForPlay.videoUrl) || 'hydrating'}`}
+              ref={(el) => {
+                modalVideoRef.current = el;
+                if (el) {
+                  el.defaultMuted = true;
+                  el.playsInline = true;
+                  el.setAttribute('playsinline', 'true');
+                  el.setAttribute('webkit-playsinline', 'true');
+                  el.setAttribute('x5-playsinline', 'true');
+                  el.setAttribute('x5-video-player-type', 'h5');
+                }
+              }}
               src={getSafeVideoUrl(selectedVideoForPlay.videoUrl)}
               poster={getClipThumbnail(selectedVideoForPlay)}
               autoPlay
@@ -1926,47 +1945,190 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               loop
               muted={isModalMuted}
               preload="auto"
+              onLoadedData={(e) => {
+                if (e.currentTarget.paused) {
+                  e.currentTarget.muted = isModalMuted;
+                  e.currentTarget.play().then(() => setIsModalPlaying(true)).catch(() => {
+                    e.currentTarget.muted = true;
+                    setIsModalMuted(true);
+                    e.currentTarget.play().then(() => setIsModalPlaying(true)).catch(() => {});
+                  });
+                }
+              }}
               onCanPlay={(e) => {
-                if (isModalPlaying) {
-                  e.currentTarget.play().then(() => setIsModalPlaying(true)).catch(() => {});
+                if (e.currentTarget.paused) {
+                  e.currentTarget.muted = isModalMuted;
+                  e.currentTarget.play().then(() => setIsModalPlaying(true)).catch(() => {
+                    e.currentTarget.muted = true;
+                    setIsModalMuted(true);
+                    e.currentTarget.play().then(() => setIsModalPlaying(true)).catch(() => {});
+                  });
                 }
               }}
-              onError={(e) => {
-                const el = e.currentTarget;
-                if (!el.src.includes('ForBiggerBlazes.mp4')) {
-                  el.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4#t=0.001';
-                  el.load();
-                  el.muted = true;
-                  el.play().then(() => setIsModalPlaying(true)).catch(() => {});
-                }
-              }}
-              className="w-full h-full object-cover"
+              onPlaying={() => setIsModalPlaying(true)}
+              onPlay={() => setIsModalPlaying(true)}
+              onPause={() => setIsModalPlaying(false)}
+              onError={() => handleVideoLoadError(true)}
+              className="relative z-10 w-full h-full object-cover"
             />
             {!isModalPlaying && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-16 h-16 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white border border-white/25 shadow-xl">
+              <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none bg-black/20">
+                <div className="w-16 h-16 rounded-full bg-black/55 backdrop-blur-md flex items-center justify-center text-white border border-white/40 shadow-2xl">
                   <Play className="w-8 h-8 fill-white ml-1" />
                 </div>
               </div>
             )}
+            {modalHeartBurst && (
+              <div className="absolute inset-0 z-35 flex items-center justify-center pointer-events-none animate-ping duration-700">
+                <Heart className="w-24 h-24 fill-rose-500 text-rose-500 opacity-90 drop-shadow-md" />
+              </div>
+            )}
           </div>
 
-          {/* Video Details & Actions Overlay */}
-          <div className="absolute bottom-0 inset-x-0 z-30 p-3.5 bg-gradient-to-t from-black/90 via-black/60 to-transparent text-white space-y-2.5">
-            <div>
+          {/* Right Side TikTok Action Buttons (ถูกใจ, คอมเมนต์, บันทึก, แชร์, ล็อกส่วนตัว) */}
+          <div className="absolute right-3 bottom-24 z-30 flex flex-col items-center gap-3">
+            <img
+              src={
+                selectedVideoForPlay.creatorAvatar ||
+                currentUser?.avatar ||
+                'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop&q=95'
+              }
+              alt={selectedVideoForPlay.creatorName}
+              className="w-11 h-11 rounded-full object-cover border-2 border-white shadow-lg"
+            />
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onLikeVideo?.(selectedVideoForPlay.id);
+              }}
+              className="flex flex-col items-center active:scale-90 transition"
+              title="ถูกใจ"
+            >
+              <div className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-md shadow-md border border-white/25 flex items-center justify-center">
+                <Heart
+                  className={`w-5 h-5 transition-transform ${
+                    selectedVideoForPlay.isLiked
+                      ? 'fill-rose-500 text-rose-500 scale-110'
+                      : 'text-white stroke-[2.2]'
+                  }`}
+                />
+              </div>
+              <span className="text-[11px] font-bold text-white mt-0.5 drop-shadow-[0_1.2px_2px_rgba(0,0,0,0.9)]">
+                {selectedVideoForPlay.likesCount.toLocaleString()}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenComments?.(selectedVideoForPlay);
+              }}
+              className="flex flex-col items-center active:scale-90 transition"
+              title="คอมเมนต์"
+            >
+              <div className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-md shadow-md border border-white/25 flex items-center justify-center text-white">
+                <MessageCircle className="w-5 h-5 stroke-[2.2]" />
+              </div>
+              <span className="text-[11px] font-bold text-white mt-0.5 drop-shadow-[0_1.2px_2px_rgba(0,0,0,0.9)]">
+                {selectedVideoForPlay.commentsCount.toLocaleString()}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSaveVideo?.(selectedVideoForPlay.id);
+              }}
+              className="flex flex-col items-center active:scale-90 transition"
+              title="บันทึกคลิปโปรด"
+            >
+              <div className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-md shadow-md border border-white/25 flex items-center justify-center">
+                <Bookmark
+                  className={`w-5 h-5 transition-transform ${
+                    selectedVideoForPlay.isSaved
+                      ? 'fill-amber-400 text-amber-400 scale-110'
+                      : 'text-white stroke-[2.2]'
+                  }`}
+                />
+              </div>
+              <span className="text-[10px] font-bold text-white mt-0.5 drop-shadow-[0_1.2px_2px_rgba(0,0,0,0.9)]">
+                {selectedVideoForPlay.isSaved ? 'บันทึกแล้ว' : 'บันทึก'}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenShare?.(selectedVideoForPlay);
+              }}
+              className="flex flex-col items-center active:scale-90 transition"
+              title="แชร์"
+            >
+              <div className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-md shadow-md border border-white/25 flex items-center justify-center text-white">
+                <Share2 className="w-5 h-5 stroke-[2.2]" />
+              </div>
+              <span className="text-[11px] font-bold text-white mt-0.5 drop-shadow-[0_1.2px_2px_rgba(0,0,0,0.9)]">
+                {selectedVideoForPlay.sharesCount.toLocaleString()}
+              </span>
+            </button>
+
+            {onToggleVideoPrivacy && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleVideoPrivacy(selectedVideoForPlay.id);
+                }}
+                className="flex flex-col items-center active:scale-90 transition"
+                title={selectedVideoForPlay.isPrivate ? 'เปลี่ยนเป็นสาธารณะ' : 'ล็อกเป็นส่วนตัว'}
+              >
+                <div className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-md shadow-md border border-white/25 flex items-center justify-center text-amber-300">
+                  {selectedVideoForPlay.isPrivate ? (
+                    <Lock className="w-4 h-4" />
+                  ) : (
+                    <Unlock className="w-4 h-4 text-white" />
+                  )}
+                </div>
+              </button>
+            )}
+          </div>
+
+          <div className="absolute bottom-0 inset-x-0 z-30 p-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] bg-gradient-to-t from-black/95 via-black/65 to-transparent text-white space-y-2.5">
+            <div className="pr-14 space-y-1.5">
               <p className="text-xs text-white font-medium line-clamp-2 drop-shadow-md">
                 {selectedVideoForPlay.caption}
               </p>
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-300 mt-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-300">
                 <Music className="w-3 h-3 text-orange-400 shrink-0" />
                 <span className="truncate">{selectedVideoForPlay.musicTitle}</span>
               </div>
+              {selectedVideoForPlay.linkedProduct && onSelectProduct && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (selectedVideoForPlay.linkedProduct) {
+                      onSelectProduct(selectedVideoForPlay.linkedProduct);
+                    }
+                  }}
+                  className="bg-white hover:bg-gray-50 border border-gray-200 shadow-md px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 active:scale-95 transition"
+                >
+                  <span className="w-4 h-4 rounded-full bg-gradient-to-r from-orange-500 to-red-500 flex items-center justify-center text-white">
+                    <ShoppingBag className="w-2.5 h-2.5 fill-white" />
+                  </span>
+                  <span className="text-[11px] font-bold text-black">สั่งซื้อสินค้า</span>
+                </button>
+              )}
             </div>
 
-            {/* Action Buttons: Download, View on Main Feed, Delete */}
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex items-center gap-2 pt-0.5">
               <a
-                href={selectedVideoForPlay.videoUrl}
+                href={getSafeVideoUrl(selectedVideoForPlay.videoUrl)}
                 download={`tokdesign-${selectedVideoForPlay.id}.mp4`}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -1978,6 +2140,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
               {onPlayVideo && (
                 <button
+                  type="button"
                   onClick={() => {
                     onPlayVideo(selectedVideoForPlay);
                     setSelectedVideoForPlay(null);
@@ -1996,7 +2159,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     onDeleteVideo(selectedVideoForPlay.id);
                     setSelectedVideoForPlay(null);
                   }}
-                  className="w-9 h-9 rounded-xl bg-red-600/80 hover:bg-red-600 active:scale-95 text-white flex items-center justify-center transition shrink-0 border border-white/20"
+                  className="w-9 h-9 rounded-xl bg-red-600/85 hover:bg-red-600 active:scale-95 text-white flex items-center justify-center transition shrink-0 border border-white/20"
                   title="ลบคลิปวิดีโอนี้"
                 >
                   <Trash2 className="w-4 h-4 stroke-[2]" />
