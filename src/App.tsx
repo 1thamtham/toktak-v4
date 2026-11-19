@@ -30,12 +30,16 @@ import {
   Copy,
   Camera,
   LogIn,
-  LogOut
+  LogOut,
+  ExternalLink,
+  RefreshCw,
+  ShieldAlert
 } from 'lucide-react';
 import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
-import { auth } from './firebase';
+import { auth, firebaseConfig } from './firebase';
 import {
   addCloudVideoComment,
+  consumeGoogleRedirectResult,
   createCloudVideoDocument,
   deleteCloudVideoDocument,
   ensureUserDocuments,
@@ -43,9 +47,11 @@ import {
   fetchUserLikedVideoIds,
   setCloudCartItemQuantity,
   signInWithGoogle,
+  signInWithGoogleRedirect,
   signOutFirebaseUser,
   submitCloudServiceBooking,
   submitCloudShopOrder,
+  subscribePublicProfiles,
   subscribePublicVideos,
   subscribeSavedVideos,
   subscribeUserCart,
@@ -54,10 +60,12 @@ import {
   toggleCloudSavedVideo,
   toggleCloudVideoLike,
   updateCloudProfile,
+  updateCloudVideoPoster,
   uploadAvatarBlobToCloudStorage,
   uploadPosterDataUrlToCloudStorage,
   uploadVideoToCloudStorage,
   type CloudCommentRecord,
+  type CloudProfileData,
   type CloudVideoRecord
 } from './services/firebaseService';
 
@@ -216,17 +224,23 @@ function openTokTakDB(): Promise<IDBDatabase> {
  */
 async function saveVideoBlobToIDB(videoId: string, fileOrBlob: Blob): Promise<boolean> {
   try {
-    const buffer = await fileOrBlob.arrayBuffer();
-    const materializedBlob = new Blob([buffer], { type: fileOrBlob.type || 'video/mp4' });
-    const db = await openTokTakDB();
-    return await new Promise<boolean>((resolve) => {
-      const tx = db.transaction(IDB_BLOBS_STORE, 'readwrite');
-      const store = tx.objectStore(IDB_BLOBS_STORE);
-      const req = store.put(materializedBlob, videoId);
-      req.onsuccess = () => resolve(true);
-      req.onerror = () => resolve(false);
-      tx.onabort = () => resolve(false);
+    const idbTask = (async () => {
+      const buffer = await fileOrBlob.arrayBuffer();
+      const materializedBlob = new Blob([buffer], { type: fileOrBlob.type || 'video/mp4' });
+      const db = await openTokTakDB();
+      return await new Promise<boolean>((resolve) => {
+        const tx = db.transaction(IDB_BLOBS_STORE, 'readwrite');
+        const store = tx.objectStore(IDB_BLOBS_STORE);
+        const req = store.put(materializedBlob, videoId);
+        req.onsuccess = () => resolve(true);
+        req.onerror = () => resolve(false);
+        tx.onabort = () => resolve(false);
+      });
+    })();
+    const timeoutTask = new Promise<boolean>((resolve) => {
+      window.setTimeout(() => resolve(false), 4000);
     });
+    return await Promise.race([idbTask, timeoutTask]);
   } catch {
     return false;
   }
@@ -807,7 +821,20 @@ export default function App() {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
+  const [authHelpModal, setAuthHelpModal] = useState<{
+    reason:
+      | 'unauthorized-domain'
+      | 'in-app-browser'
+      | 'popup-blocked'
+      | 'missing-initial-state'
+      | 'google-oauth-blocked'
+      | 'generic';
+    hostname: string;
+    url: string;
+    errorCode?: string;
+  } | null>(null);
   const [cloudVideos, setCloudVideos] = useState<CloudVideoRecord[]>([]);
+  const [publicProfilesMap, setPublicProfilesMap] = useState<Record<string, CloudProfileData>>({});
   const [likedCloudIds, setLikedCloudIds] = useState<Set<string>>(new Set());
   const [savedCloudIds, setSavedCloudIds] = useState<Set<string>>(new Set());
   const [cloudCommentsMap, setCloudCommentsMap] = useState<Record<string, CommentItem[]>>({});
@@ -829,38 +856,121 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const videosRef = useRef<VideoItem[]>(videos);
+  const migratingLocalIdsRef = useRef<Set<string>>(new Set());
+  const syncedPosterIdsRef = useRef<Set<string>>(new Set());
+  const prevAuthUidRef = useRef<string | null>(null);
+  const popupClosedCountRef = useRef<number>(0);
 
   const showToast = useCallback((message: string) => {
     setToastMessage(message);
     window.setTimeout(() => {
       setToastMessage((prev) => (prev === message ? null : prev));
-    }, 2800);
+    }, 3200);
+  }, []);
+
+  const openAuthHelpForCode = useCallback((code: string) => {
+    const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+    const url = typeof window !== 'undefined' ? window.location.href : '';
+    const isLineOrInApp =
+      typeof navigator !== 'undefined' &&
+      /\b(Line|FBAN|FBAV|Instagram|MicroMessenger)\b/i.test(navigator.userAgent || '');
+
+    if (code === 'auth/in-app-browser' || isLineOrInApp) {
+      setAuthHelpModal({ reason: 'in-app-browser', hostname, url, errorCode: code });
+      return;
+    }
+    if (code === 'auth/unauthorized-domain') {
+      setAuthHelpModal({ reason: 'unauthorized-domain', hostname, url, errorCode: code });
+      return;
+    }
+    if (code === 'auth/popup-blocked') {
+      setAuthHelpModal({ reason: 'popup-blocked', hostname, url, errorCode: code });
+      return;
+    }
+    if (
+      code === 'auth/missing-initial-state' ||
+      code === 'auth/operation-not-supported-in-this-environment'
+    ) {
+      setAuthHelpModal({ reason: 'missing-initial-state', hostname, url, errorCode: code });
+      return;
+    }
+    if (code === 'google/oauth-help' || code === 'auth/popup-closed-by-user') {
+      setAuthHelpModal({ reason: 'google-oauth-blocked', hostname, url, errorCode: code });
+      return;
+    }
+    setAuthHelpModal({ reason: 'generic', hostname, url, errorCode: code });
   }, []);
 
   const handleGoogleSignIn = useCallback(async () => {
     setIsSigningIn(true);
     try {
       const user = await signInWithGoogle();
+      popupClosedCountRef.current = 0;
+      setAuthHelpModal(null);
+      if (!user) {
+        showToast('กำลังเปิดหน้าต่างเข้าสู่ระบบ Google...');
+        return null;
+      }
       showToast(`เข้าสู่ระบบสำเร็จ: ${user.displayName || user.email || 'ผู้ใช้ Google'}`);
       return user;
     } catch (err) {
-      const code = (err as { code?: string })?.code || '';
-      if (code === 'auth/popup-blocked') {
-        showToast('เบราว์เซอร์บล็อกหน้าต่างล็อกอิน กรุณาเปิดลิงก์ใน Safari หรือ Chrome');
-      } else if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
-        showToast('ไม่สามารถเข้าสู่ระบบ Google ได้ กรุณาลองใหม่อีกครั้ง');
+      const code = (err as { code?: string })?.code || 'auth/unknown';
+      if (code === 'auth/cancelled-popup-request') {
+        return null;
+      }
+      if (code === 'auth/popup-closed-by-user') {
+        popupClosedCountRef.current += 1;
+        if (popupClosedCountRef.current >= 2) {
+          openAuthHelpForCode('auth/popup-closed-by-user');
+        } else {
+          showToast('หน้าต่าง Google ถูกปิดก่อนเสร็จสิ้น หากเข้าระบบไม่ได้แตะที่ลิงก์วิธีแก้ด้านล่าง');
+        }
+        return null;
+      }
+      openAuthHelpForCode(code);
+      if (code === 'auth/in-app-browser') {
+        showToast('กรุณาเปิดลิงก์ใน Safari หรือ Chrome เพื่อเข้าสู่ระบบ Google');
+      } else if (code === 'auth/unauthorized-domain') {
+        showToast('โดเมนนี้ยังไม่ได้รับอนุญาตใน Firebase Authentication');
+      } else if (code === 'auth/popup-blocked') {
+        showToast('เบราว์เซอร์บล็อกป๊อปอัป กรุณากดลองอีกครั้งในหน้าต่างช่วยเหลือ');
+      } else {
+        showToast('ไม่สามารถเข้าสู่ระบบ Google ได้ กรุณาดูวิธีแก้ไข');
       }
       return null;
     } finally {
       setIsSigningIn(false);
     }
-  }, [showToast]);
+  }, [openAuthHelpForCode, showToast]);
+
+  const handleGoogleRedirectSignIn = useCallback(async () => {
+    setIsSigningIn(true);
+    try {
+      await signInWithGoogleRedirect();
+    } catch (err) {
+      const code = (err as { code?: string })?.code || '';
+      openAuthHelpForCode(code);
+      setIsSigningIn(false);
+    }
+  }, [openAuthHelpForCode]);
 
   const handleGoogleSignOut = useCallback(async () => {
     try {
       await signOutFirebaseUser();
       setLikedCloudIds(new Set());
       setSavedCloudIds(new Set());
+      setCloudCommentsMap({});
+      setCart([]);
+      setProfile(DEFAULT_PROFILE);
+      setProfileDraft(DEFAULT_PROFILE);
+      migratingLocalIdsRef.current.clear();
+      syncedPosterIdsRef.current.clear();
+      try {
+        localStorage.removeItem(STORAGE_PROFILE_KEY);
+        localStorage.removeItem(STORAGE_CART_KEY);
+      } catch {
+        // ignore storage errors
+      }
       showToast('ออกจากระบบเรียบร้อยแล้ว');
     } catch {
       showToast('ไม่สามารถออกจากระบบได้');
@@ -995,27 +1105,82 @@ export default function App() {
 
   // ติดตามสถานะ Firebase Auth & ซิงค์ข้อมูลผู้ใช้แบบเรียลไทม์
   useEffect(() => {
+    void consumeGoogleRedirectResult().then((outcome) => {
+      if (outcome.user) {
+        showToast(
+          `เข้าสู่ระบบสำเร็จ: ${outcome.user.displayName || outcome.user.email || 'ผู้ใช้ Google'}`
+        );
+      } else if (outcome.errorCode) {
+        openAuthHelpForCode(outcome.errorCode);
+      }
+    });
     const unsub = onAuthStateChanged(auth, (user) => {
+      const nextUid = user?.uid ?? null;
+      if (prevAuthUidRef.current !== nextUid) {
+        prevAuthUidRef.current = nextUid;
+        setLikedCloudIds(new Set());
+        setSavedCloudIds(new Set());
+        setCloudCommentsMap({});
+        setCart([]);
+        migratingLocalIdsRef.current.clear();
+        syncedPosterIdsRef.current.clear();
+        try {
+          localStorage.removeItem(STORAGE_PROFILE_KEY);
+          localStorage.removeItem(STORAGE_CART_KEY);
+        } catch {
+          // ignore storage errors
+        }
+        if (user) {
+          const emailPrefix = user.email
+            ? user.email.split('@')[0].replace(/[^a-zA-Z0-9._-]+/g, '_')
+            : user.uid.slice(0, 6);
+          const freshSeedProfile: ProfileInfo = {
+            displayName: user.displayName || 'TokTak Creator',
+            username: `@${emailPrefix || 'creator'}`,
+            bio: DEFAULT_PROFILE.bio,
+            avatarUrl: user.photoURL || undefined
+          };
+          setProfile(freshSeedProfile);
+          setProfileDraft(freshSeedProfile);
+        } else {
+          setProfile(DEFAULT_PROFILE);
+          setProfileDraft(DEFAULT_PROFILE);
+        }
+      }
       setFirebaseUser(user);
       setAuthReady(true);
     });
     return () => unsub();
-  }, []);
+  }, [openAuthHelpForCode, showToast]);
 
+  // ซิงค์วิดีโอสาธารณะและโปรไฟล์ผู้สร้างแบบเรียลไทม์ทุกเครื่อง (ทั้งตอนยังไม่ล็อกอินและล็อกอินแล้ว)
   useEffect(() => {
     if (!authReady) return;
 
+    const unsubPublicVideos = subscribePublicVideos(
+      (items) => {
+        setCloudVideos(items);
+      },
+      () => {
+        void fetchPublicVideosOnce()
+          .then((items) => setCloudVideos(items))
+          .catch(() => {});
+      }
+    );
+
+    const unsubPublicProfiles = subscribePublicProfiles(
+      (profiles) => {
+        setPublicProfilesMap(profiles);
+      },
+      () => {
+        // Non-fatal fallback
+      }
+    );
+
     if (!firebaseUser) {
-      let active = true;
-      void fetchPublicVideosOnce()
-        .then((items) => {
-          if (active) setCloudVideos(items);
-        })
-        .catch(() => {
-          // Fallback silently to local/starter videos when offline
-        });
       return () => {
-        active = false;
+        unsubPublicVideos();
+        unsubPublicProfiles();
       };
     }
 
@@ -1045,10 +1210,6 @@ export default function App() {
       setProfileDraft(nextProf);
     });
 
-    const unsubVideos = subscribePublicVideos((items) => {
-      setCloudVideos(items);
-    });
-
     const unsubSaved = subscribeSavedVideos(firebaseUser.uid, (ids) => {
       setSavedCloudIds(ids);
     });
@@ -1066,12 +1227,102 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      unsubPublicVideos();
+      unsubPublicProfiles();
       unsubProfile();
-      unsubVideos();
       unsubSaved();
       unsubCart();
     };
   }, [authReady, firebaseUser]);
+
+  // ซิงค์คลิปที่เคยอัปโหลดค้างในเครื่อง (IndexedDB) ขึ้น Firebase Storage + Firestore อัตโนมัติเมื่อล็อกอินแล้ว
+  useEffect(() => {
+    if (!firebaseUser || !authReady) return;
+    const cloudIds = new Set(cloudVideos.map((v) => v.id));
+    const pendingLocalClips = videos.filter(
+      (v) =>
+        v.isUserCreated &&
+        !v.isCloudSynced &&
+        !cloudIds.has(v.id) &&
+        (!v.authorId || v.authorId === firebaseUser.uid)
+    );
+    if (pendingLocalClips.length === 0) return;
+
+    let cancelled = false;
+    const migrateLocalClips = async () => {
+      let migratedCount = 0;
+      for (const localVid of pendingLocalClips) {
+        if (cancelled || migratingLocalIdsRef.current.has(localVid.id)) continue;
+        migratingLocalIdsRef.current.add(localVid.id);
+        try {
+          let cloudUrl = /^https?:\/\/.+/.test(localVid.url) ? localVid.url : '';
+          let cloudStoragePath: string | undefined;
+          let cloudPosterUrl =
+            localVid.posterUrl && /^https?:\/\/.+/.test(localVid.posterUrl)
+              ? localVid.posterUrl
+              : undefined;
+          let cloudPosterPath: string | undefined;
+
+          if (!cloudUrl) {
+            const blob = await getVideoBlobFromIDB(localVid.id);
+            if (!blob) continue;
+            const storageRes = await uploadVideoToCloudStorage(
+              firebaseUser.uid,
+              localVid.id,
+              blob
+            );
+            cloudUrl = storageRes.downloadUrl;
+            cloudStoragePath = storageRes.storagePath;
+          }
+
+          if (!cloudPosterUrl && localVid.posterUrl?.startsWith('data:')) {
+            const posterRes = await uploadPosterDataUrlToCloudStorage(
+              firebaseUser.uid,
+              localVid.id,
+              localVid.posterUrl
+            );
+            if (posterRes) {
+              cloudPosterUrl = posterRes.downloadUrl;
+              cloudPosterPath = posterRes.storagePath;
+            }
+          }
+
+          await createCloudVideoDocument({
+            id: localVid.id,
+            authorId: firebaseUser.uid,
+            url: cloudUrl,
+            posterUrl: cloudPosterUrl,
+            storagePath: cloudStoragePath,
+            posterStoragePath: cloudPosterPath,
+            username: profile.username,
+            displayName: profile.displayName,
+            avatarColor: localVid.avatarColor || 'from-rose-500 to-pink-500',
+            avatarUrl: profile.avatarUrl,
+            caption: localVid.caption,
+            song: localVid.song,
+            feedCategory: localVid.feedCategory,
+            linkedProductId: localVid.linkedProductId
+          });
+
+          if (!cancelled) {
+            migratedCount += 1;
+            setVideos((prev) => prev.filter((item) => item.id !== localVid.id));
+            void deleteVideoBlobFromIDB(localVid.id);
+          }
+        } catch {
+          // Keep in local fallback and retry next session if Storage is unavailable
+        }
+      }
+      if (migratedCount > 0 && !cancelled) {
+        showToast(`ซิงค์คลิปในเครื่องขึ้นคลาวด์ Firebase แล้ว ${migratedCount} คลิป`);
+      }
+    };
+
+    void migrateLocalClips();
+    return () => {
+      cancelled = true;
+    };
+  }, [firebaseUser, authReady, videos, cloudVideos, profile.username, profile.displayName, profile.avatarUrl, showToast]);
 
   // ซิงค์สถานะการกดถูกใจของผู้ใช้สำหรับวิดีโอบนคลาวด์
   useEffect(() => {
@@ -1112,30 +1363,33 @@ export default function App() {
 
   // รวมรายการวิดีโอจาก Firebase Cloud กับวิดีโอในเครื่อง/เริ่มต้น (ไม่มีวันหายแม้เปิดจากเครื่องอื่นหรือ LINE)
   const resolvedVideos = useMemo<VideoItem[]>(() => {
-    const cloudMapped: VideoItem[] = cloudVideos.map((cv) => ({
-      id: cv.id,
-      url: cv.url,
-      posterUrl: cv.posterUrl,
-      authorId: cv.authorId,
-      storagePath: cv.storagePath,
-      posterStoragePath: cv.posterStoragePath,
-      avatarUrl: cv.avatarUrl,
-      username: cv.username,
-      displayName: cv.displayName,
-      avatarColor: cv.avatarColor,
-      caption: cv.caption,
-      song: cv.song,
-      likes: cv.likes,
-      commentsCount: cv.commentsCount,
-      isLiked: likedCloudIds.has(cv.id),
-      isSaved: savedCloudIds.has(cv.id),
-      comments: cloudCommentsMap[cv.id] || [],
-      feedCategory: cv.feedCategory,
-      linkedProductId: cv.linkedProductId,
-      isUserCreated: Boolean(firebaseUser && cv.authorId === firebaseUser.uid),
-      isCloudSynced: true,
-      createdAt: cv.createdAtMs
-    }));
+    const cloudMapped: VideoItem[] = cloudVideos.map((cv) => {
+      const liveAuthor = cv.authorId ? publicProfilesMap[cv.authorId] : undefined;
+      return {
+        id: cv.id,
+        url: cv.url,
+        posterUrl: cv.posterUrl,
+        authorId: cv.authorId,
+        storagePath: cv.storagePath,
+        posterStoragePath: cv.posterStoragePath,
+        avatarUrl: liveAuthor?.avatarUrl || cv.avatarUrl,
+        username: liveAuthor?.username || cv.username,
+        displayName: liveAuthor?.displayName || cv.displayName,
+        avatarColor: cv.avatarColor,
+        caption: cv.caption,
+        song: cv.song,
+        likes: cv.likes,
+        commentsCount: cv.commentsCount,
+        isLiked: likedCloudIds.has(cv.id),
+        isSaved: savedCloudIds.has(cv.id),
+        comments: cloudCommentsMap[cv.id] || [],
+        feedCategory: cv.feedCategory,
+        linkedProductId: cv.linkedProductId,
+        isUserCreated: Boolean(firebaseUser && cv.authorId === firebaseUser.uid),
+        isCloudSynced: true,
+        createdAt: cv.createdAtMs
+      };
+    });
 
     const cloudIds = new Set(cloudMapped.map((v) => v.id));
     const localResolved = videos
@@ -1153,7 +1407,7 @@ export default function App() {
       });
 
     return [...cloudMapped, ...localResolved].sort((a, b) => b.createdAt - a.createdAt);
-  }, [cloudVideos, videos, hydratedBlobUrls, likedCloudIds, savedCloudIds, cloudCommentsMap, firebaseUser]);
+  }, [cloudVideos, publicProfilesMap, videos, hydratedBlobUrls, likedCloudIds, savedCloudIds, cloudCommentsMap, firebaseUser]);
 
   // สร้างภาพปกพรีวิวอัตโนมัติสำหรับวิดีโอในเครื่องที่ยังไม่มี posterUrl (เช่น หลัง compaction หรือบน iOS)
   useEffect(() => {
@@ -1186,22 +1440,44 @@ export default function App() {
     };
   }, [resolvedVideos]);
 
-  // บันทึกภาพปกจากแท็ก <video> ที่กำลังถอดรหัสภาพอยู่จริงลง posterUrl เพื่อให้โปรไฟล์แสดงภาพชัดไม่เทา
-  const handleSyncVideoPoster = useCallback((videoId: string, el: HTMLVideoElement | null) => {
-    if (!el) return;
-    setReadyVideoIds((prev) => (prev[videoId] ? prev : { ...prev, [videoId]: true }));
-    const existing = videosRef.current.find((v) => v.id === videoId);
-    if (existing && !existing.posterUrl) {
+  // บันทึกภาพปกจากแท็ก <video> ที่กำลังถอดรหัสภาพอยู่จริงลง posterUrl และซิงค์ขึ้นคลาวด์หากยังไม่มีปก
+  const handleSyncVideoPoster = useCallback(
+    (videoId: string, el: HTMLVideoElement | null) => {
+      if (!el) return;
+      setReadyVideoIds((prev) => (prev[videoId] ? prev : { ...prev, [videoId]: true }));
       const captured = captureFrameFromVideoElement(el);
-      if (captured) {
+      if (!captured) return;
+
+      const existing = videosRef.current.find((v) => v.id === videoId);
+      if (existing && !existing.posterUrl) {
         setVideos((prev) =>
           prev.map((item) =>
             item.id === videoId && !item.posterUrl ? { ...item, posterUrl: captured } : item
           )
         );
       }
-    }
-  }, []);
+
+      const cloudTarget = cloudVideos.find((v) => v.id === videoId);
+      if (
+        cloudTarget &&
+        !cloudTarget.posterUrl &&
+        firebaseUser &&
+        cloudTarget.authorId === firebaseUser.uid &&
+        !syncedPosterIdsRef.current.has(videoId)
+      ) {
+        syncedPosterIdsRef.current.add(videoId);
+        void uploadPosterDataUrlToCloudStorage(firebaseUser.uid, videoId, captured)
+          .then((res) => {
+            if (res?.downloadUrl) {
+              return updateCloudVideoPoster(videoId, res.downloadUrl);
+            }
+            return undefined;
+          })
+          .catch(() => {});
+      }
+    },
+    [cloudVideos, firebaseUser]
+  );
 
   const feedVideos = useMemo<VideoItem[]>(() => {
     if (feedFilter === 'following') {
@@ -1595,6 +1871,31 @@ export default function App() {
     setIsSavingUpload(true);
     setUploadProgress(0);
     const newId = `clip-${Date.now()}`;
+    const activeAuthUser = firebaseUser || auth.currentUser;
+
+    // ดึงข้อมูลโปรไฟล์ล่าสุดของผู้ใช้ที่ล็อกอินอยู่จริง เพื่อไม่ให้ปนกับโปรไฟล์เก่าหลังสลับบัญชี
+    const activeCloudProfile = activeAuthUser
+      ? publicProfilesMap[activeAuthUser.uid]
+      : undefined;
+    const emailPrefix = activeAuthUser?.email
+      ? activeAuthUser.email.split('@')[0].replace(/[^a-zA-Z0-9._-]+/g, '_')
+      : activeAuthUser?.uid.slice(0, 6) || 'creator';
+    const resolvedAuthorDisplayName = activeAuthUser
+      ? activeCloudProfile?.displayName ||
+        (profile.displayName !== DEFAULT_PROFILE.displayName
+          ? profile.displayName
+          : activeAuthUser.displayName) ||
+        'TokTak Creator'
+      : profile.displayName;
+    const resolvedAuthorUsername = activeAuthUser
+      ? activeCloudProfile?.username ||
+        (profile.username !== DEFAULT_PROFILE.username
+          ? profile.username
+          : `@${emailPrefix || 'creator'}`)
+      : profile.username;
+    const resolvedAuthorAvatarUrl = activeAuthUser
+      ? activeCloudProfile?.avatarUrl ?? profile.avatarUrl
+      : profile.avatarUrl;
 
     try {
       let persistedUrl = uploadExternalUrl.trim();
@@ -1602,6 +1903,7 @@ export default function App() {
       let cloudStoragePath: string | undefined;
       let cloudPosterPath: string | undefined;
       let uploadedToCloud = false;
+      let cloudErrorShown = false;
 
       if (selectedFile) {
         const liveObjectUrl = URL.createObjectURL(selectedFile);
@@ -1609,17 +1911,18 @@ export default function App() {
           generatedPoster = await extractVideoPosterThumbnail(liveObjectUrl);
         }
 
-        // แคชไฟล์ในเครื่องไว้เพื่อให้เล่นและบันทึกไฟล์ได้รวดเร็วเสมอ
+        // แคชไฟล์ในเครื่องไว้เพื่อให้เล่นและบันทึกไฟล์ได้รวดเร็วเสมอ (จำกัดเวลากันค้าง)
         const savedToIdb = await saveVideoBlobToIDB(newId, selectedFile);
         if (savedToIdb) {
           setHydratedBlobUrls((prev) => ({ ...prev, [newId]: liveObjectUrl }));
         }
 
         // อัปโหลดไฟล์จริงขึ้น Firebase Cloud Storage + บันทึกข้อมูลลง Firestore หากเข้าสู่ระบบ Google แล้ว
-        if (firebaseUser) {
+        if (activeAuthUser) {
           try {
+            await ensureUserDocuments(activeAuthUser).catch(() => undefined);
             const storageRes = await uploadVideoToCloudStorage(
-              firebaseUser.uid,
+              activeAuthUser.uid,
               newId,
               selectedFile,
               (pct) => setUploadProgress(pct)
@@ -1629,7 +1932,7 @@ export default function App() {
 
             if (generatedPoster && generatedPoster.startsWith('data:')) {
               const posterRes = await uploadPosterDataUrlToCloudStorage(
-                firebaseUser.uid,
+                activeAuthUser.uid,
                 newId,
                 generatedPoster
               );
@@ -1641,15 +1944,15 @@ export default function App() {
 
             await createCloudVideoDocument({
               id: newId,
-              authorId: firebaseUser.uid,
+              authorId: activeAuthUser.uid,
               url: persistedUrl,
               posterUrl: generatedPoster,
               storagePath: cloudStoragePath,
               posterStoragePath: cloudPosterPath,
-              username: profile.username,
-              displayName: profile.displayName,
+              username: resolvedAuthorUsername,
+              displayName: resolvedAuthorDisplayName,
               avatarColor: 'from-rose-500 to-pink-500',
-              avatarUrl: profile.avatarUrl,
+              avatarUrl: resolvedAuthorAvatarUrl,
               caption: uploadCaption.trim() || 'แชร์ช่วงเวลาดีๆ บน TokTak ✨ #TokTak',
               song: uploadSong.trim() || 'เสียงต้นฉบับ - TokTak Creator',
               feedCategory: 'foryou',
@@ -1657,9 +1960,16 @@ export default function App() {
             });
             uploadedToCloud = true;
           } catch (storageErr) {
-            const code = (storageErr as { code?: string })?.code || '';
-            if (code.includes('storage/')) {
-              showToast('บันทึกในเครื่องแล้ว (โปรดเปิดใช้งาน Firebase Storage เพื่อซิงค์ไฟล์ข้ามเครื่อง)');
+            const errObj = storageErr as { code?: string; message?: string };
+            const code = errObj?.code || '';
+            const msg = errObj?.message || '';
+            cloudErrorShown = true;
+            if (code === 'storage/file-too-large' || msg.includes('file-too-large')) {
+              showToast('ไฟล์วิดีโอใหญ่เกิน 100MB จึงบันทึกไว้ในเครื่องชั่วคราว');
+            } else if (code === 'storage/unauthorized' || msg.includes('unauthorized')) {
+              showToast('สิทธิ์ Storage ยังไม่เปิดรับบัญชีนี้ กรุณาตรวจสอบ Storage Rules');
+            } else if (code === 'storage/timeout' || msg.includes('timeout')) {
+              showToast('การอัปโหลดขึ้นคลาวด์ใช้เวลานานเกินกำหนด จึงบันทึกไว้ในเครื่องแทน');
             } else {
               showToast('อัปโหลดขึ้นคลาวด์ไม่สำเร็จ จึงบันทึกสำรองไว้ในเครื่องชั่วคราว');
             }
@@ -1680,11 +1990,12 @@ export default function App() {
         if (!generatedPoster) {
           generatedPoster = await extractVideoPosterThumbnail(persistedUrl);
         }
-        if (firebaseUser && /^https?:\/\/.+/.test(persistedUrl)) {
+        if (activeAuthUser && /^https?:\/\/.+/.test(persistedUrl)) {
           try {
+            await ensureUserDocuments(activeAuthUser).catch(() => undefined);
             if (generatedPoster && generatedPoster.startsWith('data:')) {
               const posterRes = await uploadPosterDataUrlToCloudStorage(
-                firebaseUser.uid,
+                activeAuthUser.uid,
                 newId,
                 generatedPoster
               );
@@ -1695,14 +2006,14 @@ export default function App() {
             }
             await createCloudVideoDocument({
               id: newId,
-              authorId: firebaseUser.uid,
+              authorId: activeAuthUser.uid,
               url: persistedUrl,
               posterUrl: generatedPoster,
               posterStoragePath: cloudPosterPath,
-              username: profile.username,
-              displayName: profile.displayName,
+              username: resolvedAuthorUsername,
+              displayName: resolvedAuthorDisplayName,
               avatarColor: 'from-rose-500 to-pink-500',
-              avatarUrl: profile.avatarUrl,
+              avatarUrl: resolvedAuthorAvatarUrl,
               caption: uploadCaption.trim() || 'แชร์ช่วงเวลาดีๆ บน TokTak ✨ #TokTak',
               song: uploadSong.trim() || 'เสียงต้นฉบับ - TokTak Creator',
               feedCategory: 'foryou',
@@ -1720,8 +2031,10 @@ export default function App() {
           id: newId,
           url: persistedUrl,
           posterUrl: generatedPoster,
-          username: profile.username,
-          displayName: profile.displayName,
+          authorId: activeAuthUser?.uid,
+          avatarUrl: resolvedAuthorAvatarUrl,
+          username: resolvedAuthorUsername,
+          displayName: resolvedAuthorDisplayName,
           avatarColor: 'from-rose-500 to-pink-500',
           caption: uploadCaption.trim() || 'แชร์ช่วงเวลาดีๆ บน TokTak ✨ #TokTak',
           song: uploadSong.trim() || 'เสียงต้นฉบับ - TokTak Creator',
@@ -1761,8 +2074,10 @@ export default function App() {
       });
       if (uploadedToCloud) {
         showToast('อัปโหลดวิดีโอขึ้นคลาวด์ Firebase เรียบร้อยแล้ว!');
-      } else if (!firebaseUser) {
+      } else if (!activeAuthUser) {
         showToast('บันทึกคลิปในเครื่องแล้ว (เข้าสู่ระบบ Google เพื่อซิงค์คลาวด์ข้ามเครื่อง)');
+      } else if (!cloudErrorShown) {
+        showToast('บันทึกคลิปไว้ในเครื่องเรียบร้อยแล้ว');
       }
     } finally {
       setIsSavingUpload(false);
@@ -1882,21 +2197,57 @@ export default function App() {
     return INITIAL_SERVICES.filter((s) => s.category === serviceCategory);
   }, [serviceCategory]);
 
-  const myUploadedVideos = useMemo(
-    () => resolvedVideos.filter((v) => v.isUserCreated || v.username === profile.username),
-    [resolvedVideos, profile.username]
-  );
+  const displayedProfile = useMemo<ProfileInfo>(() => {
+    if (firebaseUser) return profile;
+    const isLocalDefault =
+      profile.displayName === DEFAULT_PROFILE.displayName &&
+      profile.username === DEFAULT_PROFILE.username &&
+      !profile.avatarUrl;
+    if (isLocalDefault && cloudVideos.length > 0) {
+      const leadVideo = cloudVideos[0];
+      const leadProfile = leadVideo.authorId ? publicProfilesMap[leadVideo.authorId] : undefined;
+      if (leadProfile) {
+        return {
+          displayName: leadProfile.displayName,
+          username: leadProfile.username,
+          bio: leadProfile.bio,
+          avatarUrl: leadProfile.avatarUrl
+        };
+      }
+      return {
+        displayName: leadVideo.displayName,
+        username: leadVideo.username,
+        bio: DEFAULT_PROFILE.bio,
+        avatarUrl: leadVideo.avatarUrl
+      };
+    }
+    return profile;
+  }, [firebaseUser, profile, cloudVideos, publicProfilesMap]);
+
+  const myUploadedVideos = useMemo(() => {
+    if (firebaseUser) {
+      return resolvedVideos.filter(
+        (v) =>
+          v.authorId === firebaseUser.uid ||
+          (v.isUserCreated && (!v.authorId || v.authorId === firebaseUser.uid))
+      );
+    }
+    return resolvedVideos.filter(
+      (v) => v.isUserCreated || v.username === displayedProfile.username
+    );
+  }, [resolvedVideos, firebaseUser, displayedProfile.username]);
 
   const profileGridVideos = useMemo(() => {
     if (profileTab === 'liked') return resolvedVideos.filter((v) => v.isLiked);
     if (profileTab === 'saved') return resolvedVideos.filter((v) => v.isSaved);
+    if (firebaseUser) return myUploadedVideos;
     return myUploadedVideos.length > 0 ? myUploadedVideos : resolvedVideos;
-  }, [profileTab, resolvedVideos, myUploadedVideos]);
+  }, [profileTab, resolvedVideos, myUploadedVideos, firebaseUser]);
 
-  const totalLikesCount = useMemo(
-    () => resolvedVideos.reduce((sum, v) => sum + v.likes, 0),
-    [resolvedVideos]
-  );
+  const totalLikesCount = useMemo(() => {
+    const source = firebaseUser ? myUploadedVideos : resolvedVideos;
+    return source.reduce((sum, v) => sum + v.likes, 0);
+  }, [firebaseUser, myUploadedVideos, resolvedVideos]);
 
   const activeCommentVideo = useMemo(
     () => resolvedVideos.find((v) => v.id === commentModalVideoId) || null,
@@ -1910,9 +2261,18 @@ export default function App() {
         {/* Global Toast Feedback */}
         {toastMessage && (
           <div className="absolute top-14 inset-x-4 z-50 flex justify-center pointer-events-none">
-            <div className="bg-white/95 backdrop-blur-md text-slate-900 border border-slate-200 shadow-lg rounded-full px-4 py-2 text-xs font-semibold flex items-center gap-2 max-w-full">
+            <div className="pointer-events-auto bg-white/95 backdrop-blur-md text-slate-900 border border-slate-200 shadow-lg rounded-full px-3.5 py-2 text-xs font-semibold flex items-center gap-2 max-w-full">
               <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
               <span className="truncate">{toastMessage}</span>
+              {!firebaseUser && toastMessage.includes('เข้าสู่ระบบด้วย Google') && (
+                <button
+                  type="button"
+                  onClick={() => void handleGoogleSignIn()}
+                  className="shrink-0 px-2.5 py-1 rounded-full bg-slate-900 text-white text-[11px] font-bold hover:bg-slate-800 transition"
+                >
+                  เข้าสู่ระบบ
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -1927,8 +2287,42 @@ export default function App() {
           {activeTab === 'home' && (
             <div className="relative w-full h-full bg-slate-950 overflow-hidden">
               {/* Light Mode Floating Header Bar */}
-              <div className="absolute top-3 inset-x-3 z-30 flex items-center justify-between pointer-events-none">
-                <div className="w-9" />
+              <div className="absolute top-3 inset-x-3 z-30 flex items-center justify-between gap-1.5 pointer-events-none">
+                {!firebaseUser && authReady ? (
+                  <button
+                    type="button"
+                    disabled={isSigningIn}
+                    onClick={() => void handleGoogleSignIn()}
+                    title="เข้าสู่ระบบด้วย Google"
+                    className="pointer-events-auto inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-white/95 backdrop-blur-md border border-slate-200 text-slate-900 text-[11px] font-bold shadow-sm active:scale-95 transition whitespace-nowrap shrink-0"
+                  >
+                    <LogIn className="w-3.5 h-3.5 text-rose-500" />
+                    <span>{isSigningIn ? 'กำลังเข้า...' : 'เข้าสู่ระบบ'}</span>
+                  </button>
+                ) : firebaseUser ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('profile')}
+                    title="โปรไฟล์ / สลับบัญชี Google"
+                    className="pointer-events-auto inline-flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full bg-white/95 backdrop-blur-md border border-slate-200 text-slate-900 text-[11px] font-bold shadow-sm active:scale-95 transition max-w-[92px] shrink-0"
+                  >
+                    <span className="w-6 h-6 rounded-full bg-rose-500 text-white text-[10px] font-extrabold flex items-center justify-center overflow-hidden shrink-0">
+                      {displayedProfile.avatarUrl ? (
+                        <img
+                          src={displayedProfile.avatarUrl}
+                          alt={displayedProfile.displayName}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        displayedProfile.displayName.slice(0, 1).toUpperCase()
+                      )}
+                    </span>
+                    <span className="truncate">{displayedProfile.displayName}</span>
+                  </button>
+                ) : (
+                  <div className="w-9 shrink-0" />
+                )}
                 <div className="pointer-events-auto inline-flex items-center bg-white/90 backdrop-blur-md border border-slate-200/90 rounded-full p-1 shadow-sm">
                   <button
                     type="button"
@@ -2095,6 +2489,7 @@ export default function App() {
                             <img
                               src={vid.avatarUrl}
                               alt={vid.displayName}
+                              referrerPolicy="no-referrer"
                               className="w-full h-full object-cover"
                             />
                           ) : (
@@ -2212,24 +2607,55 @@ export default function App() {
           {activeTab === 'shop' && (
             <div className="w-full h-full bg-slate-50 flex flex-col overflow-hidden">
               <header className="bg-white border-b border-slate-200 px-4 pt-4 pb-3 space-y-3 shrink-0">
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
                     <h1 className="text-lg font-extrabold text-slate-900">ร้านค้าแนะนำ</h1>
-                    <p className="text-xs text-slate-500">คัดสรรสินค้าคุณภาพดีจากครีเอเตอร์</p>
+                    <p className="text-xs text-slate-500 truncate">คัดสรรสินค้าคุณภาพดีจากครีเอเตอร์</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsCartOpen(true)}
-                    className="relative inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition"
-                  >
-                    <ShoppingCart className="w-4 h-4" />
-                    <span>ตะกร้า</span>
-                    {totalCartItems > 0 && (
-                      <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] leading-none">
-                        {totalCartItems}
-                      </span>
-                    )}
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {!firebaseUser && authReady ? (
+                      <button
+                        type="button"
+                        disabled={isSigningIn}
+                        onClick={() => void handleGoogleSignIn()}
+                        className="inline-flex items-center gap-1 px-2.5 py-2 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold transition whitespace-nowrap"
+                      >
+                        <LogIn className="w-3.5 h-3.5" />
+                        <span>{isSigningIn ? 'กำลังเข้า...' : 'เข้าสู่ระบบ'}</span>
+                      </button>
+                    ) : firebaseUser ? (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('profile')}
+                        title="สลับบัญชี Google"
+                        className="w-8 h-8 rounded-full bg-rose-50 border border-rose-200 text-rose-600 text-xs font-extrabold flex items-center justify-center overflow-hidden shrink-0"
+                      >
+                        {displayedProfile.avatarUrl ? (
+                          <img
+                            src={displayedProfile.avatarUrl}
+                            alt={displayedProfile.displayName}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          displayedProfile.displayName.slice(0, 1).toUpperCase()
+                        )}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setIsCartOpen(true)}
+                      className="relative inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition"
+                    >
+                      <ShoppingCart className="w-4 h-4" />
+                      <span>ตะกร้า</span>
+                      {totalCartItems > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] leading-none">
+                          {totalCartItems}
+                        </span>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Search Input */}
@@ -2347,6 +2773,28 @@ export default function App() {
                   >
                     <LogIn className="w-3.5 h-3.5" />
                     <span>{isSigningIn ? 'กำลังเข้า...' : 'เข้าสู่ระบบ'}</span>
+                  </button>
+                ) : firebaseUser ? (
+                  <button
+                    type="button"
+                    disabled={isSigningIn}
+                    onClick={() => void handleGoogleSignIn()}
+                    title={`กำลังใช้งาน: ${firebaseUser.email || displayedProfile.displayName} (แตะเพื่อสลับบัญชี Google)`}
+                    className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-bold active:scale-95 transition whitespace-nowrap"
+                  >
+                    <span className="w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-extrabold flex items-center justify-center overflow-hidden shrink-0">
+                      {displayedProfile.avatarUrl ? (
+                        <img
+                          src={displayedProfile.avatarUrl}
+                          alt={displayedProfile.displayName}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        displayedProfile.displayName.slice(0, 1).toUpperCase()
+                      )}
+                    </span>
+                    <span>สลับบัญชี</span>
                   </button>
                 ) : (
                   <div className="w-10 shrink-0" />
@@ -2541,15 +2989,18 @@ export default function App() {
                   <button
                     type="submit"
                     disabled={isSavingUpload}
-                    className="w-full h-11 bg-rose-500 hover:bg-rose-600 disabled:opacity-60 text-white font-bold px-4 rounded-xl text-sm shadow-sm active:scale-[0.99] transition flex items-center justify-center whitespace-nowrap"
+                    className="w-full h-11 bg-rose-500 hover:bg-rose-600 disabled:opacity-60 text-white font-bold px-4 rounded-xl text-sm shadow-sm active:scale-[0.99] transition flex items-center justify-center gap-2 whitespace-nowrap"
                   >
-                    {isSavingUpload
-                      ? uploadProgress > 0
-                        ? `กำลังอัปโหลดขึ้นคลาวด์ Firebase ${uploadProgress}%`
-                        : 'กำลังอัปโหลดและบันทึกวิดีโอ...'
-                      : firebaseUser
-                      ? 'โพสต์วิดีโอขึ้นคลาวด์ Firebase ทันที'
-                      : 'โพสต์วิดีโอขึ้นฟีดทันที'}
+                    {isSavingUpload && <Loader2 className="w-4 h-4 animate-spin shrink-0" />}
+                    <span>
+                      {isSavingUpload
+                        ? uploadProgress > 0
+                          ? `กำลังอัปโหลดขึ้นคลาวด์ Firebase ${uploadProgress}%`
+                          : 'กำลังอัปโหลดและบันทึกวิดีโอ...'
+                        : firebaseUser
+                        ? 'โพสต์วิดีโอขึ้นคลาวด์ Firebase ทันที'
+                        : 'โพสต์วิดีโอขึ้นฟีดทันที'}
+                    </span>
                   </button>
                 </div>
               </form>
@@ -2562,15 +3013,46 @@ export default function App() {
           {activeTab === 'services' && (
             <div className="w-full h-full bg-slate-50 flex flex-col overflow-hidden">
               <header className="bg-white border-b border-slate-200 px-4 pt-4 pb-3 space-y-3 shrink-0">
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
                     <h1 className="text-lg font-extrabold text-slate-900">ศูนย์บริการครีเอเตอร์</h1>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500 truncate">
                       ตัวช่วยปั้นช่อง ตัดต่อ รีวิว และโปรโมทร้านค้า
                     </p>
                   </div>
-                  <div className="w-9 h-9 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center">
-                    <Sparkles className="w-4 h-4" />
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {!firebaseUser && authReady ? (
+                      <button
+                        type="button"
+                        disabled={isSigningIn}
+                        onClick={() => void handleGoogleSignIn()}
+                        className="inline-flex items-center gap-1 px-2.5 py-2 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold transition whitespace-nowrap"
+                      >
+                        <LogIn className="w-3.5 h-3.5" />
+                        <span>{isSigningIn ? 'กำลังเข้า...' : 'เข้าสู่ระบบ'}</span>
+                      </button>
+                    ) : firebaseUser ? (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('profile')}
+                        title="โปรไฟล์ / สลับบัญชี Google"
+                        className="w-8 h-8 rounded-full bg-rose-50 border border-rose-200 text-rose-600 text-xs font-extrabold flex items-center justify-center overflow-hidden shrink-0"
+                      >
+                        {displayedProfile.avatarUrl ? (
+                          <img
+                            src={displayedProfile.avatarUrl}
+                            alt={displayedProfile.displayName}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          displayedProfile.displayName.slice(0, 1).toUpperCase()
+                        )}
+                      </button>
+                    ) : null}
+                    <div className="w-9 h-9 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
                   </div>
                 </div>
 
@@ -2667,14 +3149,15 @@ export default function App() {
                   className="relative w-20 h-20 rounded-full bg-gradient-to-tr from-rose-500 to-amber-400 p-0.5 shadow-sm cursor-pointer active:scale-95 transition-transform"
                 >
                   <div className="w-full h-full rounded-full bg-white flex items-center justify-center text-xl font-extrabold text-rose-600 overflow-hidden">
-                    {profile.avatarUrl ? (
+                    {displayedProfile.avatarUrl ? (
                       <img
-                        src={profile.avatarUrl}
-                        alt={profile.displayName}
+                        src={displayedProfile.avatarUrl}
+                        alt={displayedProfile.displayName}
+                        referrerPolicy="no-referrer"
                         className="w-full h-full object-cover"
                       />
                     ) : (
-                      profile.displayName.slice(0, 2).toUpperCase()
+                      displayedProfile.displayName.slice(0, 2).toUpperCase()
                     )}
                   </div>
                   <span className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-slate-900 text-white border-2 border-white flex items-center justify-center shadow">
@@ -2689,18 +3172,28 @@ export default function App() {
                   className="hidden"
                 />
                 <h1 className="text-base font-extrabold text-slate-900 mt-3">
-                  {profile.displayName}
+                  {displayedProfile.displayName}
                 </h1>
-                <p className="text-xs text-slate-500">{profile.username}</p>
+                <p className="text-xs text-slate-500">{displayedProfile.username}</p>
+                {firebaseUser ? (
+                  <p className="mt-1 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span>Google: {firebaseUser.email || 'เข้าสู่ระบบแล้ว'}</span>
+                  </p>
+                ) : (
+                  <p className="mt-1 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-semibold">
+                    <span>ผู้เยี่ยมชม • กำลังแสดงตัวอย่างช่องสาธารณะ</span>
+                  </p>
+                )}
                 <p className="text-xs text-slate-700 mt-2 max-w-xs leading-relaxed">
-                  {profile.bio}
+                  {displayedProfile.bio}
                 </p>
 
                 <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
                   <button
                     type="button"
                     onClick={() => {
-                      setProfileDraft(profile);
+                      setProfileDraft(displayedProfile);
                       setIsEditProfileOpen(true);
                     }}
                     className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition"
@@ -2710,14 +3203,25 @@ export default function App() {
                   </button>
 
                   {firebaseUser ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleGoogleSignOut()}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-600 text-xs font-semibold transition"
-                    >
-                      <LogOut className="w-3.5 h-3.5" />
-                      <span>ออกจากระบบ</span>
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        disabled={isSigningIn}
+                        onClick={() => void handleGoogleSignIn()}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>{isSigningIn ? 'กำลังสลับ...' : 'สลับบัญชี Google'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleGoogleSignOut()}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-600 text-xs font-semibold transition"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>ออกจากระบบ</span>
+                      </button>
+                    </>
                   ) : (
                     <button
                       type="button"
@@ -2730,14 +3234,23 @@ export default function App() {
                     </button>
                   )}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => openAuthHelpForCode('google/oauth-help')}
+                  className="mt-2 text-[11px] font-semibold text-rose-600 hover:text-rose-700 underline underline-offset-2"
+                >
+                  Google แจ้ง &ldquo;ไม่สามารถเข้าระบบได้&rdquo; หรือเปลี่ยนบัญชีไม่ได้? แตะดูวิธีแก้
+                </button>
 
                 {/* Profile Stats */}
                 <div className="grid grid-cols-3 gap-6 mt-5 w-full max-w-xs">
                   <div>
                     <p className="text-base font-extrabold text-slate-900">
-                      {resolvedVideos.length}
+                      {firebaseUser ? myUploadedVideos.length : resolvedVideos.length}
                     </p>
-                    <p className="text-[11px] text-slate-500">วิดีโอทั้งหมด</p>
+                    <p className="text-[11px] text-slate-500">
+                      {firebaseUser ? 'วิดีโอของฉัน' : 'วิดีโอทั้งหมด'}
+                    </p>
                   </div>
                   <div>
                     <p className="text-base font-extrabold text-slate-900">12.4K</p>
@@ -2763,7 +3276,7 @@ export default function App() {
                       : 'border-transparent text-slate-400'
                   }`}
                 >
-                  วิดีโอ ({myUploadedVideos.length > 0 ? myUploadedVideos.length : resolvedVideos.length})
+                  วิดีโอ ({firebaseUser ? myUploadedVideos.length : myUploadedVideos.length > 0 ? myUploadedVideos.length : resolvedVideos.length})
                 </button>
                 <button
                   type="button"
@@ -2791,9 +3304,22 @@ export default function App() {
 
               {/* 3-Column Video Grid (แสดงภาพชัด + ปุ่มบันทึก/ส่งออกไปเปิดที่ไหนก็ได้) */}
               {profileGridVideos.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center py-12 px-6 text-center text-slate-400">
-                  <Film className="w-8 h-8 mb-2 text-slate-300" />
-                  <p className="text-xs font-semibold text-slate-500">ยังไม่มีวิดีโอในหมวดนี้</p>
+                <div className="flex-1 flex flex-col items-center justify-center py-12 px-6 text-center text-slate-400 gap-2.5">
+                  <Film className="w-8 h-8 text-slate-300" />
+                  <p className="text-xs font-semibold text-slate-500">
+                    {profileTab === 'mine' && firebaseUser
+                      ? 'ยังไม่มีวิดีโอในบัญชี Google นี้'
+                      : 'ยังไม่มีวิดีโอในหมวดนี้'}
+                  </p>
+                  {profileTab === 'mine' && firebaseUser && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('upload')}
+                      className="px-4 py-2 rounded-full bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold shadow-xs transition"
+                    >
+                      อัปโหลดคลิปแรกของคุณ
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="grid grid-cols-3 gap-0.5 p-0.5 pb-6">
@@ -2817,6 +3343,7 @@ export default function App() {
                           <img
                             src={vid.posterUrl}
                             alt={vid.caption}
+                            referrerPolicy="no-referrer"
                             className="relative z-10 w-full h-full object-cover"
                           />
                         ) : (
@@ -3492,6 +4019,246 @@ export default function App() {
               >
                 บันทึกการเปลี่ยนแปลง
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Auth Help Modal (Cross-Device / Unauthorized Domain / In-App Browser / Google OAuth Recovery) */}
+        {authHelpModal && (
+          <div
+            onClick={() => setAuthHelpModal(null)}
+            className="absolute inset-0 z-50 bg-black/45 backdrop-blur-[2px] flex items-center justify-center p-4"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-h-[90dvh] overflow-y-auto bg-white rounded-3xl p-5 space-y-3.5 shadow-2xl border border-slate-200"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                    <ShieldAlert className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold text-slate-900">
+                      {authHelpModal.reason === 'in-app-browser'
+                        ? 'เบราว์เซอร์ในแอปบล็อกการเข้าสู่ระบบ Google'
+                        : authHelpModal.reason === 'unauthorized-domain'
+                        ? 'โดเมนนี้ยังไม่ได้เพิ่มใน Firebase Auth'
+                        : authHelpModal.reason === 'popup-blocked'
+                        ? 'หน้าต่างเข้าสู่ระบบ Google ถูกบล็อก'
+                        : 'วิธีแก้เมื่อ Google แจ้ง “ไม่สามารถเข้าระบบได้”'}
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      {authHelpModal.hostname || 'กำลังตรวจสอบโดเมน'}
+                      {authHelpModal.errorCode ? ` • ${authHelpModal.errorCode}` : ''}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAuthHelpModal(null)}
+                  className="p-1 rounded-full hover:bg-slate-100 text-slate-500"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {authHelpModal.reason === 'in-app-browser' && (
+                <div className="space-y-2.5 text-xs text-slate-700 leading-relaxed">
+                  <p className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-amber-900">
+                    Google ไม่อนุญาตให้ล็อกอินภายในเบราว์เซอร์ย่อยของ LINE / Facebook / IG กรุณาเปิดลิงก์นี้ด้วย <strong>Safari</strong> หรือ <strong>Chrome</strong>
+                  </p>
+                  <a
+                    href={(() => {
+                      try {
+                        const nextUrl = new URL(authHelpModal.url);
+                        nextUrl.searchParams.set('openExternalBrowser', '1');
+                        return nextUrl.toString();
+                      } catch {
+                        return authHelpModal.url;
+                      }
+                    })()}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>เปิดใน Safari / Chrome</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard?.writeText(authHelpModal.url);
+                        showToast('คัดลอกลิงก์แล้ว นำไปวางใน Safari หรือ Chrome ได้เลย');
+                      } catch {
+                        showToast('กรุณาคัดลอก URL จากแถบด้านบนแล้วเปิดใน Safari/Chrome');
+                      }
+                    }}
+                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>คัดลอกลิงก์เว็บนี้</span>
+                  </button>
+                </div>
+              )}
+
+              {authHelpModal.reason === 'unauthorized-domain' && (
+                <div className="space-y-2.5 text-xs text-slate-700 leading-relaxed">
+                  <p className="text-slate-600">
+                    เมื่อเปิดจากลิงก์หน้าจออื่น (เช่น ลิงก์แชร์ หรือโดเมน Vercel) ต้องนำโดเมนด้านล่างไปเพิ่มใน <strong>Firebase Console → Authentication → Settings → Authorized domains</strong>
+                  </p>
+                  <div className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                    <span className="text-[11px] font-mono text-slate-900 truncate select-all">
+                      {authHelpModal.hostname}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard?.writeText(authHelpModal.hostname);
+                          showToast(`คัดลอกโดเมน ${authHelpModal.hostname} แล้ว`);
+                        } catch {
+                          showToast('กรุณาคัดลอกโดเมนจากกล่องด้านซ้าย');
+                        }
+                      }}
+                      className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 text-white text-[11px] font-bold"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>คัดลอก</span>
+                    </button>
+                  </div>
+                  <a
+                    href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>เปิดหน้าตั้งค่า Firebase Authorized domains</span>
+                  </a>
+                  <button
+                    type="button"
+                    disabled={isSigningIn}
+                    onClick={() => void handleGoogleSignIn()}
+                    className="w-full bg-rose-500 hover:bg-rose-600 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>ลองเข้าสู่ระบบด้วย Google อีกครั้ง</span>
+                  </button>
+                </div>
+              )}
+
+              {(authHelpModal.reason === 'popup-blocked' ||
+                authHelpModal.reason === 'missing-initial-state' ||
+                authHelpModal.reason === 'google-oauth-blocked' ||
+                authHelpModal.reason === 'generic') && (
+                <div className="space-y-2.5 text-xs text-slate-700 leading-relaxed">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5 text-[11px] text-slate-700">
+                    <p className="font-bold text-slate-900">
+                      สาเหตุหลักที่ Google แจ้ง “ไม่สามารถเข้าระบบได้ / โปรดลองใหม่” บนหน้าจออื่นหรือบัญชีอื่น:
+                    </p>
+                    <p>
+                      1. <strong>แอปกำลังเปิดอยู่ในหน้าต่าง Preview / Iframe</strong> หรือโหมดไม่ระบุตัวตนที่บล็อกคุกกี้บุคคลที่สาม — ให้กด <strong>เปิดในแท็บเบราว์เซอร์ใหม่</strong> ด้านล่าง
+                    </p>
+                    <p>
+                      2. <strong>ใช้ Gmail บัญชีอื่นไม่ได้ (ติดสถานะ Testing):</strong> ใน Google Cloud ของโปรเจกต์ <span className="font-mono">{firebaseConfig.projectId}</span> ต้องกด <strong>Publish App</strong> (หรือเพิ่มอีเมลบัญชีอื่นใน <strong>Test users</strong>)
+                    </p>
+                    <p>
+                      3. <strong>โดเมนหน้าจออื่นยังไม่ถูกอนุญาต:</strong> ตรวจสอบว่า <span className="font-mono">{authHelpModal.hostname}</span> อยู่ใน Firebase Authorized domains แล้ว
+                    </p>
+                  </div>
+
+                  {typeof window !== 'undefined' && window.self !== window.top && (
+                    <a
+                      href={authHelpModal.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full bg-rose-500 hover:bg-rose-600 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>เปิดแอปในแท็บเบราว์เซอร์เต็ม (แนะนำ)</span>
+                    </a>
+                  )}
+
+                  <a
+                    href={`https://console.cloud.google.com/auth/audience?project=${firebaseConfig.projectId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>ตั้งค่า Google Auth (Publish App / เพิ่มบัญชีอื่น)</span>
+                  </a>
+
+                  <div className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                    <span className="text-[11px] font-mono text-slate-800 truncate select-all">
+                      {authHelpModal.hostname}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard?.writeText(authHelpModal.hostname);
+                          showToast(`คัดลอกโดเมน ${authHelpModal.hostname} แล้ว`);
+                        } catch {
+                          showToast('กรุณาคัดลอกโดเมนจากกล่องด้านซ้าย');
+                        }
+                      }}
+                      className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 text-white text-[11px] font-bold"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>คัดลอกโดเมน</span>
+                    </button>
+                  </div>
+
+                  <a
+                    href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>เช็ก Firebase Authorized domains</span>
+                  </a>
+
+                  <button
+                    type="button"
+                    disabled={isSigningIn}
+                    onClick={() => void handleGoogleSignIn()}
+                    className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                  >
+                    <LogIn className="w-3.5 h-3.5" />
+                    <span>ลองเปิดหน้าต่างเข้าสู่ระบบ Google อีกครั้ง</span>
+                  </button>
+
+                  {firebaseUser && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setAuthHelpModal(null);
+                        await handleGoogleSignOut();
+                      }}
+                      className="w-full bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>ออกจากระบบบัญชีเดิมก่อน แล้วค่อยเข้าสู่ระบบใหม่</span>
+                    </button>
+                  )}
+
+                  {typeof window !== 'undefined' && window.self === window.top && (
+                    <button
+                      type="button"
+                      disabled={isSigningIn}
+                      onClick={() => void handleGoogleRedirectSignIn()}
+                      className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>เข้าสู่ระบบแบบเปลี่ยนหน้า (Redirect)</span>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

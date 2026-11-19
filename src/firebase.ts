@@ -8,9 +8,18 @@ const app = initializeApp(firebaseConfig);
 
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+auth.useDeviceLanguage();
 export const storage = getStorage(app);
-export const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
+storage.maxUploadRetryTime = 15000;
+storage.maxOperationRetryTime = 15000;
+
+export function createGoogleAuthProvider(): GoogleAuthProvider {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  return provider;
+}
+
+export const googleProvider = createGoogleAuthProvider();
 
 export { firebaseConfig };
 

@@ -1,6 +1,8 @@
 import {
   User,
+  getRedirectResult,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
 } from 'firebase/auth';
 import {
@@ -31,8 +33,8 @@ import {
   auth,
   BLUEPRINT_LIMITS,
   clampText,
+  createGoogleAuthProvider,
   db,
-  googleProvider,
   handleFirestoreError,
   OperationType,
   sanitizeHandle,
@@ -126,10 +128,88 @@ function mapVideoDoc(id: string, data: Record<string, unknown>): CloudVideoRecor
 // AUTHENTICATION & USER BOOTSTRAP
 // ============================================================================
 
-export async function signInWithGoogle(): Promise<User> {
-  const result = await signInWithPopup(auth, googleProvider);
-  await ensureUserDocuments(result.user);
-  return result.user;
+export function isEmbeddedInAppBrowser(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return /\b(Line|FBAN|FBAV|Instagram|MicroMessenger)\b/i.test(ua);
+}
+
+export function isEmbeddedIframe(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
+export interface RedirectSignInOutcome {
+  user: User | null;
+  errorCode?: string;
+}
+
+export async function signInWithGoogle(): Promise<User | null> {
+  if (isEmbeddedInAppBrowser()) {
+    const webViewErr = new Error('Google Sign-In is blocked inside embedded in-app browsers.') as Error & {
+      code?: string;
+    };
+    webViewErr.code = 'auth/in-app-browser';
+    throw webViewErr;
+  }
+
+  // Always create a fresh provider with prompt: 'select_account' synchronously inside the user gesture
+  const provider = createGoogleAuthProvider();
+  try {
+    const result = await signInWithPopup(auth, provider);
+    void ensureUserDocuments(result.user).catch((docErr) => {
+      console.warn('Non-blocking user bootstrap warning:', docErr);
+    });
+    return result.user;
+  } catch (err) {
+    const code = (err as { code?: string })?.code || '';
+    if (
+      !isEmbeddedIframe() &&
+      (code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-supported-in-this-environment')
+    ) {
+      if (auth.currentUser) {
+        await signOut(auth).catch(() => {});
+      }
+      await signInWithRedirect(auth, createGoogleAuthProvider());
+      return null;
+    }
+    throw err;
+  }
+}
+
+export async function signInWithGoogleRedirect(): Promise<void> {
+  if (isEmbeddedInAppBrowser()) {
+    const webViewErr = new Error('Google Sign-In is blocked inside embedded in-app browsers.') as Error & {
+      code?: string;
+    };
+    webViewErr.code = 'auth/in-app-browser';
+    throw webViewErr;
+  }
+  if (auth.currentUser) {
+    await signOut(auth).catch(() => {});
+  }
+  await signInWithRedirect(auth, createGoogleAuthProvider());
+}
+
+export async function consumeGoogleRedirectResult(): Promise<RedirectSignInOutcome> {
+  try {
+    const result = await getRedirectResult(auth);
+    if (result?.user) {
+      void ensureUserDocuments(result.user).catch((docErr) => {
+        console.warn('Non-blocking redirect user bootstrap warning:', docErr);
+      });
+      return { user: result.user };
+    }
+    return { user: null };
+  } catch (err) {
+    const code = (err as { code?: string })?.code || 'auth/redirect-failed';
+    return { user: null, errorCode: code };
+  }
 }
 
 export async function signOutFirebaseUser(): Promise<void> {
@@ -225,26 +305,65 @@ export function subscribeUserProfile(
   );
 }
 
+export function subscribePublicProfiles(
+  onProfiles: (profiles: Record<string, CloudProfileData>) => void,
+  onError?: (err: unknown) => void
+): Unsubscribe {
+  const path = 'profiles';
+  const q = query(collection(db, 'profiles'), where('isPublic', '==', true));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const next: Record<string, CloudProfileData> = {};
+      snap.forEach((d) => {
+        const data = d.data();
+        next[d.id] = {
+          uid: typeof data.uid === 'string' ? data.uid : d.id,
+          displayName:
+            typeof data.displayName === 'string' ? data.displayName : 'TokTak Creator',
+          username: typeof data.username === 'string' ? data.username : '@creator',
+          bio: typeof data.bio === 'string' ? data.bio : '',
+          avatarUrl:
+            typeof data.avatarUrl === 'string' && data.avatarUrl.length > 0
+              ? data.avatarUrl
+              : undefined,
+          isPublic: data.isPublic !== false,
+        };
+      });
+      onProfiles(next);
+    },
+    (error) => {
+      if (onError) {
+        onError(error);
+      } else {
+        handleFirestoreError(error, OperationType.LIST, path);
+      }
+    }
+  );
+}
+
 export async function updateCloudProfile(
   uid: string,
   draft: { displayName: string; username: string; bio: string; avatarUrl?: string }
 ): Promise<CloudProfileData> {
   const safeUid = sanitizeId(uid, 'user');
   const path = `profiles/${safeUid}`;
+  const nextDisplayName =
+    clampText(draft.displayName, BLUEPRINT_LIMITS.DISPLAY_NAME_MAX) || 'TokTak Creator';
+  const nextUsername = sanitizeHandle(draft.username, safeUid.slice(0, 6));
+  const nextAvatarUrl =
+    draft.avatarUrl && draft.avatarUrl.length <= BLUEPRINT_LIMITS.IMAGE_DATA_OR_URL_MAX
+      ? draft.avatarUrl
+      : '';
+
   const cleanPayload: Record<string, unknown> = {
-    displayName:
-      clampText(draft.displayName, BLUEPRINT_LIMITS.DISPLAY_NAME_MAX) || 'TokTak Creator',
-    username: sanitizeHandle(draft.username, safeUid.slice(0, 6)),
+    displayName: nextDisplayName,
+    username: nextUsername,
     bio: clampText(draft.bio, BLUEPRINT_LIMITS.BIO_MAX),
+    avatarUrl: nextAvatarUrl,
     isPublic: true,
     updatedAt: serverTimestamp(),
   };
-
-  if (draft.avatarUrl && draft.avatarUrl.length <= BLUEPRINT_LIMITS.IMAGE_DATA_OR_URL_MAX) {
-    cleanPayload.avatarUrl = draft.avatarUrl;
-  } else {
-    cleanPayload.avatarUrl = '';
-  }
 
   try {
     const profileRef = doc(db, 'profiles', safeUid);
@@ -258,12 +377,36 @@ export async function updateCloudProfile(
         createdAt: serverTimestamp(),
       });
     }
+
+    // Propagate updated displayName, username, and avatarUrl to this creator's cloud videos
+    try {
+      const ownVideosQuery = query(
+        collection(db, 'videos'),
+        where('authorId', '==', safeUid)
+      );
+      const ownSnap = await getDocs(ownVideosQuery);
+      if (!ownSnap.empty) {
+        const batch = writeBatch(db);
+        ownSnap.forEach((videoDoc) => {
+          batch.update(videoDoc.ref, {
+            displayName: nextDisplayName,
+            username: nextUsername,
+            avatarUrl: nextAvatarUrl,
+            updatedAt: serverTimestamp(),
+          });
+        });
+        await batch.commit();
+      }
+    } catch {
+      // Non-fatal: public profile subscription still enriches video cards
+    }
+
     return {
       uid: safeUid,
-      displayName: String(cleanPayload.displayName),
-      username: String(cleanPayload.username),
+      displayName: nextDisplayName,
+      username: nextUsername,
       bio: String(cleanPayload.bio),
-      avatarUrl: cleanPayload.avatarUrl ? String(cleanPayload.avatarUrl) : undefined,
+      avatarUrl: nextAvatarUrl || undefined,
       isPublic: true,
     };
   } catch (error) {
@@ -278,36 +421,80 @@ export async function updateCloudProfile(
 export async function uploadVideoToCloudStorage(
   uid: string,
   videoId: string,
-  file: File,
+  file: Blob & { name?: string },
   onProgress?: (percent: number) => void
 ): Promise<{ downloadUrl: string; storagePath: string }> {
+  const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+  if (file.size > MAX_VIDEO_BYTES) {
+    const err = new Error('storage/file-too-large') as Error & { code?: string };
+    err.code = 'storage/file-too-large';
+    throw err;
+  }
+
   const safeUid = sanitizeId(uid, 'user');
   const safeVidId = sanitizeId(videoId, 'clip');
-  const rawExt = file.name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const ext = rawExt && rawExt.length <= 5 ? rawExt : 'mp4';
+  const rawExt = (file.name || '').split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const mimeExt = file.type?.split('/')[1]?.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const ext =
+    (rawExt && rawExt.length <= 5 ? rawExt : '') ||
+    (mimeExt && mimeExt.length <= 5 ? mimeExt : 'mp4');
   const storagePath = `videos/${safeUid}/${safeVidId}.${ext}`;
   const fileRef = ref(storage, storagePath);
+  const normalizedContentType =
+    file.type && file.type.startsWith('video/') ? file.type : 'video/mp4';
 
   return await new Promise((resolve, reject) => {
+    let settled = false;
+    let lastBytes = -1;
     const uploadTask = uploadBytesResumable(fileRef, file, {
-      contentType: file.type || 'video/mp4',
+      contentType: normalizedContentType,
     });
+
+    const resetStallTimer = () => {
+      window.clearTimeout(stallTimer);
+      stallTimer = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try {
+          uploadTask.cancel();
+        } catch {
+          // ignore cancel errors
+        }
+        const timeoutErr = new Error('storage/timeout') as Error & { code?: string };
+        timeoutErr.code = 'storage/timeout';
+        reject(timeoutErr);
+      }, 15000);
+    };
+
+    let stallTimer = window.setTimeout(() => {}, 0);
+    resetStallTimer();
 
     uploadTask.on(
       'state_changed',
       (snapshot) => {
+        if (snapshot.bytesTransferred !== lastBytes) {
+          lastBytes = snapshot.bytesTransferred;
+          resetStallTimer();
+        }
         if (snapshot.totalBytes > 0 && onProgress) {
           onProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100));
         }
       },
       (err) => {
+        window.clearTimeout(stallTimer);
+        if (settled) return;
+        settled = true;
         reject(err);
       },
       async () => {
+        window.clearTimeout(stallTimer);
+        if (settled) return;
         try {
           const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+          settled = true;
           resolve({ downloadUrl, storagePath });
         } catch (err) {
+          settled = true;
           reject(err);
         }
       }
@@ -330,9 +517,17 @@ export async function uploadPosterDataUrlToCloudStorage(
     const storagePath = `posters/${safeUid}/${safeVidId}.jpg`;
     const fileRef = ref(storage, storagePath);
 
-    await uploadBytes(fileRef, blob, { contentType: 'image/jpeg' });
-    const downloadUrl = await getDownloadURL(fileRef);
-    return { downloadUrl, storagePath };
+    const uploadPromise = (async () => {
+      await uploadBytes(fileRef, blob, { contentType: 'image/jpeg' });
+      const downloadUrl = await getDownloadURL(fileRef);
+      return { downloadUrl, storagePath };
+    })();
+
+    const timeoutPromise = new Promise<null>((resolve) => {
+      window.setTimeout(() => resolve(null), 8000);
+    });
+
+    return await Promise.race([uploadPromise, timeoutPromise]);
   } catch {
     return null;
   }
@@ -380,7 +575,8 @@ export async function fetchPublicVideosOnce(): Promise<CloudVideoRecord[]> {
 }
 
 export function subscribePublicVideos(
-  onVideos: (videos: CloudVideoRecord[]) => void
+  onVideos: (videos: CloudVideoRecord[]) => void,
+  onError?: (err: unknown) => void
 ): Unsubscribe {
   const path = 'videos';
   const q = query(collection(db, 'videos'), where('visibility', '==', 'public'));
@@ -393,9 +589,30 @@ export function subscribePublicVideos(
       onVideos(items);
     },
     (error) => {
-      handleFirestoreError(error, OperationType.LIST, path);
+      if (onError) {
+        onError(error);
+      } else {
+        handleFirestoreError(error, OperationType.LIST, path);
+      }
     }
   );
+}
+
+export async function updateCloudVideoPoster(
+  videoId: string,
+  posterUrl: string
+): Promise<void> {
+  if (!posterUrl || posterUrl.length > BLUEPRINT_LIMITS.IMAGE_DATA_OR_URL_MAX) return;
+  const safeVidId = sanitizeId(videoId, 'clip');
+  const path = `videos/${safeVidId}`;
+  try {
+    await updateDoc(doc(db, 'videos', safeVidId), {
+      posterUrl,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
 }
 
 export async function fetchUserLikedVideoIds(
