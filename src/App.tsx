@@ -2328,44 +2328,35 @@ export default function App() {
           {/* -------------------------------------------------------------- */}
           {activeTab === 'upload' && (
             <div className="w-full h-full bg-white flex flex-col overflow-hidden">
-              <header className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between shrink-0">
+              <header className="px-4 py-2.5 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => setActiveTab('home')}
-                  className="text-xs font-semibold text-slate-500 hover:text-slate-900"
+                  className="text-xs font-semibold text-slate-500 hover:text-slate-900 whitespace-nowrap shrink-0 py-1 px-1"
                 >
                   ยกเลิก
                 </button>
-                <h1 className="text-sm font-extrabold text-slate-900">สร้างวิดีโอใหม่</h1>
-                <div className="w-10" />
+                <h1 className="text-sm font-extrabold text-slate-900 truncate">สร้างวิดีโอใหม่</h1>
+                {!firebaseUser && authReady ? (
+                  <button
+                    type="button"
+                    disabled={isSigningIn}
+                    onClick={() => void handleGoogleSignIn()}
+                    title="เข้าสู่ระบบด้วย Google เพื่ออัปโหลดขึ้นคลาวด์ Firebase"
+                    className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold active:scale-95 transition whitespace-nowrap"
+                  >
+                    <LogIn className="w-3.5 h-3.5" />
+                    <span>{isSigningIn ? 'กำลังเข้า...' : 'เข้าสู่ระบบ'}</span>
+                  </button>
+                ) : (
+                  <div className="w-10 shrink-0" />
+                )}
               </header>
 
               <form
                 onSubmit={handlePublishVideo}
-                className="flex-1 overflow-y-auto p-4 space-y-4"
+                className="flex-1 min-h-0 flex flex-col overflow-hidden"
               >
-                {!firebaseUser && authReady && (
-                  <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3.5 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-slate-900">
-                        เข้าสู่ระบบด้วย Google เพื่ออัปโหลดขึ้นคลาวด์ Firebase
-                      </p>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        บันทึกวิดีโอและข้อมูลโปรไฟล์ซิงค์ทุกเครื่อง เปิดดูได้ทันทีจากทุกเบราว์เซอร์
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={isSigningIn}
-                      onClick={() => void handleGoogleSignIn()}
-                      className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold active:scale-95 transition"
-                    >
-                      <LogIn className="w-3.5 h-3.5" />
-                      <span>{isSigningIn ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ'}</span>
-                    </button>
-                  </div>
-                )}
-
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -2374,172 +2365,193 @@ export default function App() {
                   className="hidden"
                 />
 
-                {/* Video File Picker / Live Preview (Clear Frame, Zero Gray Box) */}
-                {previewUrl || uploadExternalUrl ? (
-                  <div className="relative rounded-2xl overflow-hidden bg-slate-950 border border-slate-200 aspect-[9/12] max-h-64 mx-auto flex items-center justify-center shadow-sm">
-                    {previewPosterUrl && (
-                      <img
-                        src={previewPosterUrl}
-                        alt="ตัวอย่างวิดีโอ"
-                        className="absolute inset-0 z-0 w-full h-full object-cover pointer-events-none"
-                      />
-                    )}
-                    <video
-                      ref={(el) => {
-                        if (el) {
-                          el.setAttribute('webkit-playsinline', 'true');
-                          el.setAttribute('x5-playsinline', 'true');
-                        }
-                      }}
-                      src={getPlaybackSrc(previewUrl || uploadExternalUrl)}
-                      controls
-                      autoPlay
-                      loop
-                      playsInline
-                      muted
-                      preload="auto"
-                      onLoadedData={(e) => {
-                        setIsPreviewReady(true);
-                        if (!previewPosterUrl) {
-                          const cap = captureFrameFromVideoElement(e.currentTarget);
-                          if (cap) setPreviewPosterUrl(cap);
-                        }
-                      }}
-                      onCanPlay={() => setIsPreviewReady(true)}
-                      className={`relative z-10 w-full h-full object-cover transition-opacity duration-200 ${
-                        isPreviewReady || !previewPosterUrl ? 'opacity-100' : 'opacity-0'
-                      }`}
-                    />
+                <div className="flex-1 min-h-0 overflow-y-auto px-4 py-2.5 space-y-2.5">
+                  {/* Video File Picker / Compact Live Preview */}
+                  {previewUrl || uploadExternalUrl ? (
+                    <div className="flex items-center gap-3 rounded-xl bg-slate-50 border border-slate-200 p-2">
+                      <div className="relative w-16 h-24 rounded-lg overflow-hidden bg-slate-950 shrink-0 flex items-center justify-center">
+                        {previewPosterUrl && (
+                          <img
+                            src={previewPosterUrl}
+                            alt="ตัวอย่างวิดีโอ"
+                            className="absolute inset-0 z-0 w-full h-full object-cover pointer-events-none"
+                          />
+                        )}
+                        <video
+                          ref={(el) => {
+                            if (el) {
+                              el.setAttribute('webkit-playsinline', 'true');
+                              el.setAttribute('x5-playsinline', 'true');
+                            }
+                          }}
+                          src={getPlaybackSrc(previewUrl || uploadExternalUrl)}
+                          autoPlay
+                          loop
+                          playsInline
+                          muted
+                          preload="auto"
+                          onLoadedData={(e) => {
+                            setIsPreviewReady(true);
+                            if (!previewPosterUrl) {
+                              const cap = captureFrameFromVideoElement(e.currentTarget);
+                              if (cap) setPreviewPosterUrl(cap);
+                            }
+                          }}
+                          onCanPlay={() => setIsPreviewReady(true)}
+                          className={`relative z-10 w-full h-full object-cover transition-opacity duration-200 ${
+                            isPreviewReady || !previewPosterUrl ? 'opacity-100' : 'opacity-0'
+                          }`}
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <p className="text-xs font-bold text-slate-900 truncate">
+                          {selectedFile ? selectedFile.name : 'วิดีโอจากลิงก์ภายนอก'}
+                        </p>
+                        <p className="text-[11px] text-slate-500 tabular-nums">
+                          {selectedFile
+                            ? `ขนาด ${(selectedFile.size / (1024 * 1024)).toFixed(1)} MB • พร้อมโพสต์`
+                            : 'พร้อมโพสต์ขึ้นฟีด'}
+                        </p>
+                        <div className="flex items-center gap-2 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-[11px] font-semibold text-slate-700 whitespace-nowrap transition"
+                          >
+                            เปลี่ยนคลิป
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (previewUrl.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
+                              setSelectedFile(null);
+                              setPreviewUrl('');
+                              setPreviewPosterUrl('');
+                              setIsPreviewReady(false);
+                              setUploadExternalUrl('');
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-[11px] font-semibold text-rose-600 whitespace-nowrap transition"
+                          >
+                            ลบออก
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
                     <button
                       type="button"
-                      onClick={() => {
-                        if (previewUrl.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
-                        setSelectedFile(null);
-                        setPreviewUrl('');
-                        setPreviewPosterUrl('');
-                        setIsPreviewReady(false);
-                        setUploadExternalUrl('');
-                      }}
-                      className="absolute top-2.5 right-2.5 z-20 w-8 h-8 rounded-full bg-white/95 text-slate-800 border border-slate-200 shadow-sm flex items-center justify-center"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full border-2 border-dashed border-slate-300 hover:border-rose-400 bg-slate-50 hover:bg-rose-50/40 rounded-xl py-2 px-3 flex flex-row items-center justify-center gap-2.5 transition cursor-pointer"
                     >
-                      <X className="w-4 h-4" />
-                    </button>
-                    {selectedFile && (
-                      <div className="absolute bottom-2.5 left-2.5 z-20 bg-white/95 border border-slate-200 px-2.5 py-1 rounded-full text-[10px] font-semibold text-slate-700 shadow-xs">
-                        {selectedFile.name} ({(selectedFile.size / (1024 * 1024)).toFixed(1)} MB)
+                      <div className="w-8 h-8 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-sm shrink-0">
+                        <Upload className="w-4 h-4" />
                       </div>
-                    )}
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="w-full border-2 border-dashed border-slate-300 hover:border-rose-400 bg-slate-50 hover:bg-rose-50/40 rounded-xl py-2 px-3 flex flex-row items-center justify-center gap-2.5 transition cursor-pointer"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-sm shrink-0">
-                      <Upload className="w-4 h-4" />
-                    </div>
-                    <div className="text-left min-w-0">
-                      <p className="text-xs font-bold text-slate-900 leading-tight">
-                        เลือกไฟล์วิดีโอจากเครื่องของคุณ
-                      </p>
-                      <p className="text-[10px] text-slate-500 leading-tight mt-0.5 truncate">
-                        รองรับ MP4, MOV, WebM • บันทึกถาวรลงเครื่องไม่มีหายเมื่อรีเฟรช
-                      </p>
-                    </div>
-                  </button>
-                )}
+                      <div className="text-left min-w-0">
+                        <p className="text-xs font-bold text-slate-900 leading-tight">
+                          เลือกไฟล์วิดีโอจากเครื่องของคุณ
+                        </p>
+                        <p className="text-[10px] text-slate-500 leading-tight mt-0.5 truncate">
+                          รองรับ MP4, MOV, WebM • บันทึกถาวรลงเครื่องไม่มีหายเมื่อรีเฟรช
+                        </p>
+                      </div>
+                    </button>
+                  )}
 
-                {!selectedFile && (
+                  {!selectedFile && (
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        หรือวางลิงก์วิดีโอ (MP4 URL)
+                      </label>
+                      <input
+                        type="url"
+                        value={uploadExternalUrl}
+                        onChange={(e) => {
+                          setUploadExternalUrl(e.target.value);
+                          setIsPreviewReady(false);
+                        }}
+                        placeholder="https://example.com/clip.mp4"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:bg-white focus:border-rose-400"
+                      />
+                    </div>
+                  )}
+
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      หรือวางลิงก์วิดีโอ (MP4 URL)
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      คำอธิบายคลิป (Caption)
                     </label>
-                    <input
-                      type="url"
-                      value={uploadExternalUrl}
-                      onChange={(e) => {
-                        setUploadExternalUrl(e.target.value);
-                        setIsPreviewReady(false);
-                      }}
-                      placeholder="https://example.com/clip.mp4"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:bg-white focus:border-rose-400"
+                    <textarea
+                      value={uploadCaption}
+                      onChange={(e) => setUploadCaption(e.target.value)}
+                      placeholder="เล่าเรื่องราวหรือรีวิวสินค้าของคุณ..."
+                      rows={2}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:bg-white focus:border-rose-400 resize-none"
                     />
+                    <div className="flex items-center gap-1.5 mt-1.5 overflow-x-auto no-scrollbar">
+                      {['#TokTak', '#รีวิวของดี', '#ของมันต้องมี', '#มินิมอล'].map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() =>
+                            setUploadCaption((prev) =>
+                              prev.includes(tag) ? prev : `${prev ? prev + ' ' : ''}${tag}`
+                            )
+                          }
+                          className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium whitespace-nowrap shrink-0 transition"
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                )}
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    คำอธิบายคลิป (Caption)
-                  </label>
-                  <textarea
-                    value={uploadCaption}
-                    onChange={(e) => setUploadCaption(e.target.value)}
-                    placeholder="เล่าเรื่องราวหรือรีวิวสินค้าของคุณ..."
-                    rows={3}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:bg-white focus:border-rose-400 resize-none"
-                  />
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {['#TokTak', '#รีวิวของดี', '#ของมันต้องมี', '#มินิมอล'].map((tag) => (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() =>
-                          setUploadCaption((prev) =>
-                            prev.includes(tag) ? prev : `${prev ? prev + ' ' : ''}${tag}`
-                          )
-                        }
-                        className="px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium transition"
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1 truncate">
+                        เพลงประกอบ
+                      </label>
+                      <input
+                        type="text"
+                        value={uploadSong}
+                        onChange={(e) => setUploadSong(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs text-slate-900 focus:outline-none focus:bg-white focus:border-rose-400"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1 truncate">
+                        ปักตะกร้าสินค้าแนะนำ
+                      </label>
+                      <select
+                        value={uploadProductId}
+                        onChange={(e) => setUploadProductId(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs text-slate-900 focus:outline-none focus:bg-white focus:border-rose-400"
                       >
-                        {tag}
-                      </button>
-                    ))}
+                        <option value="">ไม่ระบุสินค้า</option>
+                        {INITIAL_PRODUCTS.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} (฿{p.price})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    เพลงประกอบ
-                  </label>
-                  <input
-                    type="text"
-                    value={uploadSong}
-                    onChange={(e) => setUploadSong(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:bg-white focus:border-rose-400"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    ปักตะกร้าสินค้าแนะนำ (ถ้ามี)
-                  </label>
-                  <select
-                    value={uploadProductId}
-                    onChange={(e) => setUploadProductId(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:bg-white focus:border-rose-400"
+                <div className="px-4 py-2.5 border-t border-slate-100 bg-white shrink-0">
+                  <button
+                    type="submit"
+                    disabled={isSavingUpload}
+                    className="w-full h-11 bg-rose-500 hover:bg-rose-600 disabled:opacity-60 text-white font-bold px-4 rounded-xl text-sm shadow-sm active:scale-[0.99] transition flex items-center justify-center whitespace-nowrap"
                   >
-                    <option value="">ไม่ระบุสินค้า</option>
-                    {INITIAL_PRODUCTS.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} (฿{p.price})
-                      </option>
-                    ))}
-                  </select>
+                    {isSavingUpload
+                      ? uploadProgress > 0
+                        ? `กำลังอัปโหลดขึ้นคลาวด์ Firebase ${uploadProgress}%`
+                        : 'กำลังอัปโหลดและบันทึกวิดีโอ...'
+                      : firebaseUser
+                      ? 'โพสต์วิดีโอขึ้นคลาวด์ Firebase ทันที'
+                      : 'โพสต์วิดีโอขึ้นฟีดทันที'}
+                  </button>
                 </div>
-
-                <button
-                  type="submit"
-                  disabled={isSavingUpload}
-                  className="w-full bg-rose-500 hover:bg-rose-600 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm shadow-sm active:scale-[0.99] transition"
-                >
-                  {isSavingUpload
-                    ? uploadProgress > 0
-                      ? `กำลังอัปโหลดขึ้นคลาวด์ Firebase ${uploadProgress}%`
-                      : 'กำลังอัปโหลดและบันทึกวิดีโอ...'
-                    : firebaseUser
-                    ? 'โพสต์วิดีโอขึ้นคลาวด์ Firebase ทันที'
-                    : 'โพสต์วิดีโอขึ้นฟีดทันที'}
-                </button>
               </form>
             </div>
           )}
