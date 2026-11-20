@@ -43,6 +43,7 @@ import {
   createCloudVideoDocument,
   deleteCloudVideoDocument,
   ensureUserDocuments,
+  fetchPublicProfilesOnce,
   fetchPublicVideosOnce,
   fetchUserLikedVideoIds,
   setCloudCartItemQuantity,
@@ -524,7 +525,7 @@ function getExtensionFromMime(mimeType?: string, url?: string): string {
 function getPlaybackSrc(url: string): string {
   if (!url) return '';
   if (url.startsWith('http://') || url.startsWith('https://')) {
-    return url.includes('#') ? url : `${url}#t=0.001`;
+    return url.includes('#') ? url : `${url}#t=0.1`;
   }
   return url;
 }
@@ -839,6 +840,7 @@ export default function App() {
   const [savedCloudIds, setSavedCloudIds] = useState<Set<string>>(new Set());
   const [cloudCommentsMap, setCloudCommentsMap] = useState<Record<string, CommentItem[]>>({});
   const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(() => new Set());
 
   // Upload Form States
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -860,6 +862,16 @@ export default function App() {
   const syncedPosterIdsRef = useRef<Set<string>>(new Set());
   const prevAuthUidRef = useRef<string | null>(null);
   const popupClosedCountRef = useRef<number>(0);
+
+  const markImageUrlFailed = useCallback((url?: string) => {
+    if (!url) return;
+    setFailedImageUrls((prev) => {
+      if (prev.has(url)) return prev;
+      const next = new Set(prev);
+      next.add(url);
+      return next;
+    });
+  }, []);
 
   const showToast = useCallback((message: string) => {
     setToastMessage(message);
@@ -942,6 +954,14 @@ export default function App() {
       setIsSigningIn(false);
     }
   }, [openAuthHelpForCode, showToast]);
+
+  useEffect(() => {
+    if (!isSigningIn) return;
+    const timer = window.setTimeout(() => {
+      setIsSigningIn(false);
+    }, 25000);
+    return () => window.clearTimeout(timer);
+  }, [isSigningIn]);
 
   const handleGoogleRedirectSignIn = useCallback(async () => {
     setIsSigningIn(true);
@@ -1153,36 +1173,62 @@ export default function App() {
     return () => unsub();
   }, [openAuthHelpForCode, showToast]);
 
-  // ซิงค์วิดีโอสาธารณะและโปรไฟล์ผู้สร้างแบบเรียลไทม์ทุกเครื่อง (ทั้งตอนยังไม่ล็อกอินและล็อกอินแล้ว)
+  // ดึงวิดีโอสาธารณะและโปรไฟล์จาก Firebase Cloud ทันที (ทั้งแบบ getDocs และเรียลไทม์) เพื่อให้ทุกอุปกรณ์/LINE/คอมพิวเตอร์เห็นภาพเดียวกันตั้งแต่เปิดหน้า
   useEffect(() => {
-    if (!authReady) return;
+    let cancelled = false;
+
+    void fetchPublicVideosOnce()
+      .then((items) => {
+        if (!cancelled && items.length > 0) {
+          setCloudVideos((prev) => (prev.length > 0 ? prev : items));
+        }
+      })
+      .catch(() => {});
+
+    void fetchPublicProfilesOnce()
+      .then((profiles) => {
+        if (!cancelled && Object.keys(profiles).length > 0) {
+          setPublicProfilesMap((prev) => (Object.keys(prev).length > 0 ? prev : profiles));
+        }
+      })
+      .catch(() => {});
 
     const unsubPublicVideos = subscribePublicVideos(
       (items) => {
-        setCloudVideos(items);
+        if (!cancelled) setCloudVideos(items);
       },
       () => {
         void fetchPublicVideosOnce()
-          .then((items) => setCloudVideos(items))
+          .then((items) => {
+            if (!cancelled) setCloudVideos(items);
+          })
           .catch(() => {});
       }
     );
 
     const unsubPublicProfiles = subscribePublicProfiles(
       (profiles) => {
-        setPublicProfilesMap(profiles);
+        if (!cancelled) setPublicProfilesMap(profiles);
       },
       () => {
-        // Non-fatal fallback
+        void fetchPublicProfilesOnce()
+          .then((profiles) => {
+            if (!cancelled) setPublicProfilesMap(profiles);
+          })
+          .catch(() => {});
       }
     );
 
-    if (!firebaseUser) {
-      return () => {
-        unsubPublicVideos();
-        unsubPublicProfiles();
-      };
-    }
+    return () => {
+      cancelled = true;
+      unsubPublicVideos();
+      unsubPublicProfiles();
+    };
+  }, []);
+
+  // ซิงค์ข้อมูลส่วนตัวของผู้ใช้เมื่อเข้าสู่ระบบแล้ว
+  useEffect(() => {
+    if (!authReady || !firebaseUser) return;
 
     let cancelled = false;
     void ensureUserDocuments(firebaseUser)
@@ -1227,8 +1273,6 @@ export default function App() {
 
     return () => {
       cancelled = true;
-      unsubPublicVideos();
-      unsubPublicProfiles();
       unsubProfile();
       unsubSaved();
       unsubCart();
@@ -1392,9 +1436,15 @@ export default function App() {
     });
 
     const cloudIds = new Set(cloudMapped.map((v) => v.id));
+    const starterById = new Map(INITIAL_VIDEOS.map((v) => [v.id, v]));
     const localResolved = videos
       .filter((v) => !cloudIds.has(v.id))
       .map((v) => {
+        // เมื่อมีข้อมูลจากคลาวด์แล้ว ใช้ข้อมูลเริ่มต้นมาตรฐานสำหรับคลิปตัวอย่างเพื่อไม่ให้ยอด/ภาพเพี้ยนต่างเครื่อง
+        if (cloudMapped.length > 0 && !v.isUserCreated) {
+          const canonicalStarter = starterById.get(v.id);
+          if (canonicalStarter) return canonicalStarter;
+        }
         if (v.url.startsWith('idb://')) {
           const clipId = v.url.replace('idb://', '');
           const hydrated = hydratedBlobUrls[clipId];
@@ -1404,7 +1454,8 @@ export default function App() {
           };
         }
         return v;
-      });
+      })
+      .filter((v) => !v.url.startsWith('idb://'));
 
     return [...cloudMapped, ...localResolved].sort((a, b) => b.createdAt - a.createdAt);
   }, [cloudVideos, publicProfilesMap, videos, hydratedBlobUrls, likedCloudIds, savedCloudIds, cloudCommentsMap, firebaseUser]);
@@ -2199,11 +2250,7 @@ export default function App() {
 
   const displayedProfile = useMemo<ProfileInfo>(() => {
     if (firebaseUser) return profile;
-    const isLocalDefault =
-      profile.displayName === DEFAULT_PROFILE.displayName &&
-      profile.username === DEFAULT_PROFILE.username &&
-      !profile.avatarUrl;
-    if (isLocalDefault && cloudVideos.length > 0) {
+    if (cloudVideos.length > 0) {
       const leadVideo = cloudVideos[0];
       const leadProfile = leadVideo.authorId ? publicProfilesMap[leadVideo.authorId] : undefined;
       if (leadProfile) {
@@ -2256,8 +2303,8 @@ export default function App() {
 
   return (
     <div className="fixed inset-0 h-[100dvh] w-screen overflow-hidden bg-slate-100 flex justify-center items-center font-sans text-slate-900 select-none">
-      {/* Mobile App Frame (Clean Light Mode Surface) */}
-      <div className="relative w-full max-w-md h-[100dvh] bg-white sm:border-x sm:border-slate-200 flex flex-col overflow-hidden shadow-xl">
+      {/* Mobile App Frame (Unified 9:19.5 aspect on Desktop, Mobile & WebViews) */}
+      <div className="relative w-full max-w-[430px] h-[100dvh] md:h-[min(94dvh,844px)] md:rounded-[28px] md:border md:border-slate-200 bg-white sm:border-x sm:border-slate-200 flex flex-col overflow-hidden shadow-xl">
         {/* Global Toast Feedback */}
         {toastMessage && (
           <div className="absolute top-14 inset-x-4 z-50 flex justify-center pointer-events-none">
@@ -2307,11 +2354,12 @@ export default function App() {
                     className="pointer-events-auto inline-flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full bg-white/95 backdrop-blur-md border border-slate-200 text-slate-900 text-[11px] font-bold shadow-sm active:scale-95 transition max-w-[92px] shrink-0"
                   >
                     <span className="w-6 h-6 rounded-full bg-rose-500 text-white text-[10px] font-extrabold flex items-center justify-center overflow-hidden shrink-0">
-                      {displayedProfile.avatarUrl ? (
+                      {displayedProfile.avatarUrl && !failedImageUrls.has(displayedProfile.avatarUrl) ? (
                         <img
                           src={displayedProfile.avatarUrl}
                           alt={displayedProfile.displayName}
                           referrerPolicy="no-referrer"
+                          onError={() => markImageUrlFailed(displayedProfile.avatarUrl)}
                           className="w-full h-full object-cover"
                         />
                       ) : (
@@ -2388,10 +2436,12 @@ export default function App() {
                       className="relative w-full h-full snap-start snap-always shrink-0 bg-slate-950 flex items-center justify-center overflow-hidden"
                     >
                       {/* ภาพพรีวิวที่ชัดเจนเสมอระหว่างรอเฟรมวิดีโอ (แก้ปัญหาหน้าจอสีเทา) */}
-                      {vid.posterUrl ? (
+                      {vid.posterUrl && !failedImageUrls.has(vid.posterUrl) ? (
                         <img
                           src={vid.posterUrl}
                           alt={vid.caption}
+                          referrerPolicy="no-referrer"
+                          onError={() => markImageUrlFailed(vid.posterUrl)}
                           className="absolute inset-0 z-0 w-full h-full object-cover pointer-events-none"
                         />
                       ) : (
@@ -2407,15 +2457,23 @@ export default function App() {
                             if (el) {
                               el.setAttribute('webkit-playsinline', 'true');
                               el.setAttribute('x5-playsinline', 'true');
+                              el.setAttribute('x5-video-player-type', 'h5');
+                              el.setAttribute('x5-video-player-fullscreen', 'false');
                               if (el.readyState >= 2 && !readyVideoIds[vid.id]) {
                                 handleSyncVideoPoster(vid.id, el);
                               }
                             }
                           }}
                           src={getPlaybackSrc(vid.url)}
+                          poster={
+                            vid.posterUrl && !failedImageUrls.has(vid.posterUrl)
+                              ? vid.posterUrl
+                              : undefined
+                          }
                           autoPlay={idx === currentIndex}
                           loop
                           playsInline
+                          disablePictureInPicture
                           muted={isMuted || idx !== currentIndex}
                           preload={Math.abs(idx - currentIndex) <= 1 ? 'auto' : 'metadata'}
                           onLoadedData={(e) => handleSyncVideoPoster(vid.id, e.currentTarget)}
@@ -2427,7 +2485,9 @@ export default function App() {
                             }
                           }}
                           className={`relative z-10 w-full h-full object-cover transition-opacity duration-200 ${
-                            isVideoReady || !vid.posterUrl ? 'opacity-100' : 'opacity-0'
+                            isVideoReady || !vid.posterUrl || failedImageUrls.has(vid.posterUrl)
+                              ? 'opacity-100'
+                              : 'opacity-0'
                           }`}
                         />
                       ) : (
@@ -2485,11 +2545,12 @@ export default function App() {
                         <div
                           className={`w-10 h-10 rounded-full bg-gradient-to-tr ${vid.avatarColor} border-2 border-white shadow-md flex items-center justify-center text-white font-bold text-xs overflow-hidden`}
                         >
-                          {vid.avatarUrl ? (
+                          {vid.avatarUrl && !failedImageUrls.has(vid.avatarUrl) ? (
                             <img
                               src={vid.avatarUrl}
                               alt={vid.displayName}
                               referrerPolicy="no-referrer"
+                              onError={() => markImageUrlFailed(vid.avatarUrl)}
                               className="w-full h-full object-cover"
                             />
                           ) : (
@@ -2630,11 +2691,12 @@ export default function App() {
                         title="สลับบัญชี Google"
                         className="w-8 h-8 rounded-full bg-rose-50 border border-rose-200 text-rose-600 text-xs font-extrabold flex items-center justify-center overflow-hidden shrink-0"
                       >
-                        {displayedProfile.avatarUrl ? (
+                        {displayedProfile.avatarUrl && !failedImageUrls.has(displayedProfile.avatarUrl) ? (
                           <img
                             src={displayedProfile.avatarUrl}
                             alt={displayedProfile.displayName}
                             referrerPolicy="no-referrer"
+                            onError={() => markImageUrlFailed(displayedProfile.avatarUrl)}
                             className="w-full h-full object-cover"
                           />
                         ) : (
@@ -2700,6 +2762,8 @@ export default function App() {
                       <img
                         src={product.image}
                         alt={product.name}
+                        referrerPolicy="no-referrer"
+                        onError={() => markImageUrlFailed(product.image)}
                         className="w-full h-full object-cover"
                       />
                       {product.badge && (
@@ -2783,11 +2847,12 @@ export default function App() {
                     className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-bold active:scale-95 transition whitespace-nowrap"
                   >
                     <span className="w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-extrabold flex items-center justify-center overflow-hidden shrink-0">
-                      {displayedProfile.avatarUrl ? (
+                      {displayedProfile.avatarUrl && !failedImageUrls.has(displayedProfile.avatarUrl) ? (
                         <img
                           src={displayedProfile.avatarUrl}
                           alt={displayedProfile.displayName}
                           referrerPolicy="no-referrer"
+                          onError={() => markImageUrlFailed(displayedProfile.avatarUrl)}
                           className="w-full h-full object-cover"
                         />
                       ) : (
@@ -3038,11 +3103,12 @@ export default function App() {
                         title="โปรไฟล์ / สลับบัญชี Google"
                         className="w-8 h-8 rounded-full bg-rose-50 border border-rose-200 text-rose-600 text-xs font-extrabold flex items-center justify-center overflow-hidden shrink-0"
                       >
-                        {displayedProfile.avatarUrl ? (
+                        {displayedProfile.avatarUrl && !failedImageUrls.has(displayedProfile.avatarUrl) ? (
                           <img
                             src={displayedProfile.avatarUrl}
                             alt={displayedProfile.displayName}
                             referrerPolicy="no-referrer"
+                            onError={() => markImageUrlFailed(displayedProfile.avatarUrl)}
                             className="w-full h-full object-cover"
                           />
                         ) : (
@@ -3149,11 +3215,12 @@ export default function App() {
                   className="relative w-20 h-20 rounded-full bg-gradient-to-tr from-rose-500 to-amber-400 p-0.5 shadow-sm cursor-pointer active:scale-95 transition-transform"
                 >
                   <div className="w-full h-full rounded-full bg-white flex items-center justify-center text-xl font-extrabold text-rose-600 overflow-hidden">
-                    {displayedProfile.avatarUrl ? (
+                    {displayedProfile.avatarUrl && !failedImageUrls.has(displayedProfile.avatarUrl) ? (
                       <img
                         src={displayedProfile.avatarUrl}
                         alt={displayedProfile.displayName}
                         referrerPolicy="no-referrer"
+                        onError={() => markImageUrlFailed(displayedProfile.avatarUrl)}
                         className="w-full h-full object-cover"
                       />
                     ) : (
@@ -3208,17 +3275,21 @@ export default function App() {
                         type="button"
                         disabled={isSigningIn}
                         onClick={() => void handleGoogleSignIn()}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition"
+                        className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white text-xs font-semibold shadow-xs active:scale-95 touch-manipulation cursor-pointer transition"
                       >
-                        <RefreshCw className="w-3.5 h-3.5" />
+                        {isSigningIn ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                        ) : (
+                          <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                        )}
                         <span>{isSigningIn ? 'กำลังสลับ...' : 'สลับบัญชี Google'}</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => void handleGoogleSignOut()}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-600 text-xs font-semibold transition"
+                        className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3.5 py-2 rounded-full bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-600 text-xs font-semibold active:scale-95 touch-manipulation cursor-pointer transition"
                       >
-                        <LogOut className="w-3.5 h-3.5" />
+                        <LogOut className="w-3.5 h-3.5 shrink-0" />
                         <span>ออกจากระบบ</span>
                       </button>
                     </>
@@ -3227,9 +3298,34 @@ export default function App() {
                       type="button"
                       disabled={isSigningIn}
                       onClick={() => void handleGoogleSignIn()}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition"
+                      className="inline-flex items-center justify-center gap-2 min-h-[40px] px-4 py-2 rounded-full bg-white hover:bg-slate-50 disabled:opacity-60 border border-slate-300 text-slate-900 text-xs font-bold shadow-xs active:scale-95 touch-manipulation cursor-pointer transition"
                     >
-                      <LogIn className="w-3.5 h-3.5" />
+                      {isSigningIn ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-rose-500 shrink-0" />
+                      ) : (
+                        <svg
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                          className="w-4 h-4 shrink-0"
+                        >
+                          <path
+                            fill="#4285F4"
+                            d="M23.49 12.27c0-.79-.07-1.54-.2-2.27H12v4.3h6.45a5.52 5.52 0 0 1-2.39 3.62v3h3.87c2.26-2.08 3.56-5.15 3.56-8.65Z"
+                          />
+                          <path
+                            fill="#34A853"
+                            d="M12 24c3.24 0 5.95-1.07 7.93-2.9l-3.87-3c-1.07.72-2.44 1.15-4.06 1.15-3.12 0-5.77-2.11-6.72-4.95H1.28v3.1A11.99 11.99 0 0 0 12 24Z"
+                          />
+                          <path
+                            fill="#FBBC05"
+                            d="M5.28 14.3a7.2 7.2 0 0 1 0-4.6V6.6H1.28a12 12 0 0 0 0 10.8l4-3.1Z"
+                          />
+                          <path
+                            fill="#EA4335"
+                            d="M12 4.75c1.76 0 3.34.61 4.58 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0 7.31 0 3.25 2.69 1.28 6.6l4 3.1c.95-2.84 3.6-4.95 6.72-4.95Z"
+                          />
+                        </svg>
+                      )}
                       <span>{isSigningIn ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบด้วย Google'}</span>
                     </button>
                   )}
@@ -3237,9 +3333,9 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => openAuthHelpForCode('google/oauth-help')}
-                  className="mt-2 text-[11px] font-semibold text-rose-600 hover:text-rose-700 underline underline-offset-2"
+                  className="mt-2 text-[11px] font-medium text-slate-400 hover:text-slate-600 underline underline-offset-2"
                 >
-                  Google แจ้ง &ldquo;ไม่สามารถเข้าระบบได้&rdquo; หรือเปลี่ยนบัญชีไม่ได้? แตะดูวิธีแก้
+                  มีปัญหาในการเข้าสู่ระบบ? ดูวิธีแก้
                 </button>
 
                 {/* Profile Stats */}
@@ -3339,11 +3435,12 @@ export default function App() {
                           <Film className="w-6 h-6 text-white/75" />
                         </div>
 
-                        {vid.posterUrl ? (
+                        {vid.posterUrl && !failedImageUrls.has(vid.posterUrl) ? (
                           <img
                             src={vid.posterUrl}
                             alt={vid.caption}
                             referrerPolicy="no-referrer"
+                            onError={() => markImageUrlFailed(vid.posterUrl)}
                             className="relative z-10 w-full h-full object-cover"
                           />
                         ) : (
@@ -3353,16 +3450,16 @@ export default function App() {
                                 if (el) {
                                   el.setAttribute('webkit-playsinline', 'true');
                                   el.setAttribute('x5-playsinline', 'true');
+                                  el.setAttribute('x5-video-player-type', 'h5');
+                                  el.setAttribute('x5-video-player-fullscreen', 'false');
                                 }
                               }}
                               src={getPlaybackSrc(vid.url)}
                               muted
-                              autoPlay
-                              loop
                               playsInline
-                              preload="auto"
+                              disablePictureInPicture
+                              preload="metadata"
                               onLoadedData={(e) => handleSyncVideoPoster(vid.id, e.currentTarget)}
-                              onPlaying={(e) => handleSyncVideoPoster(vid.id, e.currentTarget)}
                               className="relative z-10 w-full h-full object-cover"
                             />
                           )
@@ -3666,6 +3763,8 @@ export default function App() {
                 <img
                   src={selectedProduct.image}
                   alt={selectedProduct.name}
+                  referrerPolicy="no-referrer"
+                  onError={() => markImageUrlFailed(selectedProduct.image)}
                   className="w-full h-full object-cover"
                 />
                 <button
@@ -3751,6 +3850,8 @@ export default function App() {
                       <img
                         src={item.product.image}
                         alt={item.product.name}
+                        referrerPolicy="no-referrer"
+                        onError={() => markImageUrlFailed(item.product.image)}
                         className="w-14 h-14 rounded-xl object-cover shrink-0"
                       />
                       <div className="flex-1 min-w-0">
@@ -3909,10 +4010,12 @@ export default function App() {
               <div className="flex items-center gap-3 pb-1">
                 <label className="relative w-14 h-14 rounded-full bg-gradient-to-tr from-rose-500 to-amber-400 p-0.5 cursor-pointer shrink-0">
                   <div className="w-full h-full rounded-full bg-white flex items-center justify-center text-sm font-extrabold text-rose-600 overflow-hidden">
-                    {profileDraft.avatarUrl ? (
+                    {profileDraft.avatarUrl && !failedImageUrls.has(profileDraft.avatarUrl) ? (
                       <img
                         src={profileDraft.avatarUrl}
                         alt={profileDraft.displayName}
+                        referrerPolicy="no-referrer"
+                        onError={() => markImageUrlFailed(profileDraft.avatarUrl)}
                         className="w-full h-full object-cover"
                       />
                     ) : (
@@ -4078,7 +4181,6 @@ export default function App() {
                         return authHelpModal.url;
                       }
                     })()}
-                    target="_blank"
                     rel="noopener noreferrer"
                     className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
                   >

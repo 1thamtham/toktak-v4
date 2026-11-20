@@ -305,6 +305,33 @@ export function subscribeUserProfile(
   );
 }
 
+export async function fetchPublicProfilesOnce(): Promise<Record<string, CloudProfileData>> {
+  const path = 'profiles';
+  try {
+    const q = query(collection(db, 'profiles'), where('isPublic', '==', true));
+    const snap = await getDocs(q);
+    const next: Record<string, CloudProfileData> = {};
+    snap.forEach((d) => {
+      const data = d.data();
+      next[d.id] = {
+        uid: typeof data.uid === 'string' ? data.uid : d.id,
+        displayName:
+          typeof data.displayName === 'string' ? data.displayName : 'TokTak Creator',
+        username: typeof data.username === 'string' ? data.username : '@creator',
+        bio: typeof data.bio === 'string' ? data.bio : '',
+        avatarUrl:
+          typeof data.avatarUrl === 'string' && data.avatarUrl.length > 0
+            ? data.avatarUrl
+            : undefined,
+        isPublic: data.isPublic !== false,
+      };
+    });
+    return next;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+  }
+}
+
 export function subscribePublicProfiles(
   onProfiles: (profiles: Record<string, CloudProfileData>) => void,
   onError?: (err: unknown) => void

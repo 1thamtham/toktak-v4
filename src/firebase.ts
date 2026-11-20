@@ -15,6 +15,8 @@ storage.maxOperationRetryTime = 15000;
 
 export function createGoogleAuthProvider(): GoogleAuthProvider {
   const provider = new GoogleAuthProvider();
+  provider.addScope('email');
+  provider.addScope('profile');
   provider.setCustomParameters({ prompt: 'select_account' });
   return provider;
 }
