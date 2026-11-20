@@ -33,10 +33,15 @@ import {
   LogOut,
   ExternalLink,
   RefreshCw,
-  ShieldAlert
+  ShieldAlert,
+  Store,
+  Compass
 } from 'lucide-react';
 import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
 import { auth, firebaseConfig } from './firebase';
+import tshirtMockup from './assets/images/tshirt_mockup_1794023817755.jpg';
+import phonecaseMockup from './assets/images/phonecase_mockup_1794023818273.jpg';
+import totebagMockup from './assets/images/totebag_mockup_1794023818674.jpg';
 import {
   addCloudVideoComment,
   consumeGoogleRedirectResult,
@@ -589,51 +594,51 @@ function compressAvatarImage(file: File): Promise<{ dataUrl: string; blob: Blob 
 const INITIAL_PRODUCTS: ProductItem[] = [
   {
     id: 'prod-1',
-    name: 'เสื้อยืด Oversize Cotton 100% มินิมอล',
+    name: 'เสื้อยืดพิมพ์ลายพรีเมียม Oversize Cotton',
     category: 'แฟชั่น',
-    price: 299,
-    originalPrice: 450,
+    price: 390,
+    originalPrice: 490,
     rating: 4.9,
     soldCount: 1420,
-    image: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=800&auto=format&fit=crop&q=80',
+    image: tshirtMockup,
     badge: 'ขายดีอันดับ 1',
-    description: 'ผ้าฝ้ายแท้ทอละเอียด ใส่สบายไม่ร้อน ทรงสวยแมตช์ง่ายกับทุกลุคประจำวัน'
+    description: 'เสื้อยืดพิมพ์ลายลิมิเต็ด ผ้าฝ้ายแท้ทอละเอียด ใส่สบายไม่ร้อน แมตช์ง่ายกับทุกลุค'
   },
   {
     id: 'prod-2',
-    name: 'หูฟังไร้สาย ANC Studio White',
-    category: 'แก็ดเจ็ต',
-    price: 890,
-    originalPrice: 1490,
-    rating: 4.8,
+    name: 'กระเป๋าผ้าแคนวาสดีไซน์พิเศษ',
+    category: 'แฟชั่น',
+    price: 450,
+    originalPrice: 590,
+    rating: 4.9,
     soldCount: 860,
-    image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&auto=format&fit=crop&q=80',
-    badge: 'ลด 40%',
-    description: 'ตัดเสียงรบกวนรอบข้างได้ดีเยี่ยม แบตเตอรี่ใช้งานต่อเนื่องสูงสุด 30 ชั่วโมง'
+    image: totebagMockup,
+    badge: 'ดีไซน์เก๋',
+    description: 'กระเป๋าผ้าแคนวาสเนื้อหนา ทนทาน จุของได้เยอะ ดีไซน์มินิมอลไม่ซ้ำใคร'
   },
   {
     id: 'prod-3',
-    name: 'โคมไฟตั้งโต๊ะมินิมอลไร้สาย LED',
-    category: 'ของแต่งบ้าน',
-    price: 459,
-    originalPrice: 690,
-    rating: 4.9,
+    name: 'เคสมือถือกันกระแทกพรีเมียม',
+    category: 'แก็ดเจ็ต',
+    price: 290,
+    originalPrice: 390,
+    rating: 4.8,
     soldCount: 615,
-    image: 'https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=800&auto=format&fit=crop&q=80',
-    badge: 'สินค้าแนะนำ',
-    description: 'ปรับความสว่างได้ 3 ระดับ แสงอุ่นถนอมสายตา ชาร์จผ่าน USB-C ได้สะดวก'
+    image: phonecaseMockup,
+    badge: 'กันกระแทก',
+    description: 'เคสกันกระแทกขอบนิ่ม ลายกราฟิกคมชัด ปกป้องตัวเครื่องรอบด้านพร้อมความเท่'
   },
   {
     id: 'prod-4',
-    name: 'เซรั่มวิตามินซี Bright & Glow 30ml',
-    category: 'บิวตี้',
-    price: 390,
-    originalPrice: 590,
-    rating: 4.7,
+    name: 'สมุดโน้ตปกหนังแฮนด์เมด',
+    category: 'ของแต่งบ้าน',
+    price: 250,
+    originalPrice: 350,
+    rating: 4.8,
     soldCount: 2150,
-    image: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=800&auto=format&fit=crop&q=80',
-    badge: 'รีวิวแน่น',
-    description: 'เนื้อบางเบาซึมไว ช่วยปรับผิวให้ดูกระจ่างใสเรียบเนียนอย่างเป็นธรรมชาติ'
+    image: 'https://images.unsplash.com/photo-1544816155-12df9643f363?w=800&auto=format&fit=crop&q=80',
+    badge: 'แฮนด์เมด',
+    description: 'สมุดโน้ตปกหนังพรีเมียม กระดาษถนอมสายตา จดบันทึกไอเดียสร้างสรรค์ได้ทุกวัน'
   }
 ];
 
@@ -817,6 +822,15 @@ export default function App() {
   const [shopCategory, setShopCategory] = useState<'ทั้งหมด' | ProductItem['category']>('ทั้งหมด');
   const [serviceCategory, setServiceCategory] = useState<'ทั้งหมด' | ServiceItem['category']>('ทั้งหมด');
   const [profileTab, setProfileTab] = useState<'mine' | 'liked' | 'saved'>('mine');
+  const [accountRole, setAccountRole] = useState<'creator' | 'seller'>(() => {
+    try {
+      const savedRole = localStorage.getItem('toktak_account_role_v1');
+      if (savedRole === 'seller' || savedRole === 'creator') return savedRole;
+    } catch {
+      // ignore
+    }
+    return 'creator';
+  });
 
   // Firebase Auth & Cloud States
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -913,7 +927,15 @@ export default function App() {
     setAuthHelpModal({ reason: 'generic', hostname, url, errorCode: code });
   }, []);
 
-  const handleGoogleSignIn = useCallback(async () => {
+  const handleGoogleSignIn = useCallback(async (preferredRole?: 'creator' | 'seller') => {
+    if (preferredRole) {
+      setAccountRole(preferredRole);
+      try {
+        localStorage.setItem('toktak_account_role_v1', preferredRole);
+      } catch {
+        // ignore
+      }
+    }
     setIsSigningIn(true);
     try {
       const user = await signInWithGoogle();
@@ -2296,15 +2318,28 @@ export default function App() {
     return source.reduce((sum, v) => sum + v.likes, 0);
   }, [firebaseUser, myUploadedVideos, resolvedVideos]);
 
+  const handleNextFeedVideo = useCallback(() => {
+    const container = feedScrollRef.current;
+    if (feedVideos.length <= 1) return;
+    const nextIdx = (currentIndex + 1) % feedVideos.length;
+    setCurrentIndex(nextIdx);
+    if (container && container.clientHeight > 0) {
+      container.scrollTo({
+        top: nextIdx * container.clientHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, [currentIndex, feedVideos.length]);
+
   const activeCommentVideo = useMemo(
     () => resolvedVideos.find((v) => v.id === commentModalVideoId) || null,
     [resolvedVideos, commentModalVideoId]
   );
 
   return (
-    <div className="fixed inset-0 h-[100dvh] w-screen overflow-hidden bg-slate-100 flex justify-center items-center font-sans text-slate-900 select-none">
+    <div className="fixed inset-0 h-[100dvh] w-screen overflow-hidden bg-gradient-to-br from-pink-50 via-purple-50 to-blue-50 flex justify-center items-center font-sans text-slate-900 select-none">
       {/* Mobile App Frame (Unified 9:19.5 aspect on Desktop, Mobile & WebViews) */}
-      <div className="relative w-full max-w-[430px] h-[100dvh] md:h-[min(94dvh,844px)] md:rounded-[28px] md:border md:border-slate-200 bg-white sm:border-x sm:border-slate-200 flex flex-col overflow-hidden shadow-xl">
+      <div className="relative w-full max-w-[430px] h-[100dvh] md:h-[min(94dvh,844px)] md:rounded-[28px] md:border md:border-pink-100 bg-white sm:border-x sm:border-pink-100 flex flex-col overflow-hidden shadow-2xl">
         {/* Global Toast Feedback */}
         {toastMessage && (
           <div className="absolute top-14 inset-x-4 z-50 flex justify-center pointer-events-none">
@@ -2654,6 +2689,23 @@ export default function App() {
                           </div>
                           <span className="text-[10px] font-bold text-white drop-shadow">แชร์</span>
                         </button>
+
+                        {feedVideos.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleNextFeedVideo();
+                            }}
+                            title="คลิปถัดไป"
+                            className="flex flex-col items-center gap-0.5 active:scale-90 transition"
+                          >
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-md flex items-center justify-center">
+                              <Compass className="w-4 h-4" />
+                            </div>
+                            <span className="text-[10px] font-bold text-white drop-shadow">ถัดไป</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -2667,11 +2719,17 @@ export default function App() {
           {/* -------------------------------------------------------------- */}
           {activeTab === 'shop' && (
             <div className="w-full h-full bg-slate-50 flex flex-col overflow-hidden">
-              <header className="bg-white border-b border-slate-200 px-4 pt-4 pb-3 space-y-3 shrink-0">
+              <header className="bg-white border-b border-pink-100 px-4 pt-4 pb-3 space-y-3 shrink-0">
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <h1 className="text-lg font-extrabold text-slate-900">ร้านค้าแนะนำ</h1>
-                    <p className="text-xs text-slate-500 truncate">คัดสรรสินค้าคุณภาพดีจากครีเอเตอร์</p>
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-rose-500 shrink-0" />
+                      <h1 className="text-lg font-extrabold text-slate-900">TokTak ร้านค้า</h1>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-pink-100 text-pink-700">
+                        Ultimate
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 truncate">เสื้อ กระเป๋า เคส สมุดโน้ต & บริการออกแบบพรีเมียม</p>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {!firebaseUser && authReady ? (
@@ -2809,6 +2867,24 @@ export default function App() {
                     </div>
                   </div>
                 ))}
+                <div className="col-span-2 bg-gradient-to-r from-pink-50 via-purple-50 to-indigo-50 border border-pink-100 rounded-2xl p-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
+                      <Store className="w-4 h-4 text-rose-500 shrink-0" />
+                      <span>บริการเสริม & ออกแบบครบวงจร</span>
+                    </p>
+                    <p className="text-[11px] text-slate-600 mt-0.5 truncate">
+                      ตัดต่อคลิป รีวิวสินค้า ออกแบบลายเสื้อ-แพ็กเกจจิ้ง
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('services')}
+                    className="shrink-0 px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-bold active:scale-95 transition"
+                  >
+                    ดูบริการ
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -3243,10 +3319,33 @@ export default function App() {
                 </h1>
                 <p className="text-xs text-slate-500">{displayedProfile.username}</p>
                 {firebaseUser ? (
-                  <p className="mt-1 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
-                    <CheckCircle2 className="w-3 h-3" />
-                    <span>Google: {firebaseUser.email || 'เข้าสู่ระบบแล้ว'}</span>
-                  </p>
+                  <div className="mt-1.5 flex flex-wrap items-center justify-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
+                      <CheckCircle2 className="w-3 h-3" />
+                      <span>Google: {firebaseUser.email || 'เข้าสู่ระบบแล้ว'}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextRole = accountRole === 'creator' ? 'seller' : 'creator';
+                        setAccountRole(nextRole);
+                        try {
+                          localStorage.setItem('toktak_account_role_v1', nextRole);
+                        } catch {
+                          // ignore
+                        }
+                        showToast(
+                          nextRole === 'seller'
+                            ? 'สลับเป็นโหมดร้านค้า (Seller) แล้ว'
+                            : 'สลับเป็นโหมดครีเอเตอร์ (Creator) แล้ว'
+                        );
+                      }}
+                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-pink-50 hover:bg-pink-100 text-pink-700 border border-pink-200 text-[10px] font-bold transition"
+                    >
+                      <Store className="w-3 h-3" />
+                      <span>{accountRole === 'seller' ? 'โหมด: ร้านค้า' : 'โหมด: ครีเอเตอร์'}</span>
+                    </button>
+                  </div>
                 ) : (
                   <p className="mt-1 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-semibold">
                     <span>ผู้เยี่ยมชม • กำลังแสดงตัวอย่างช่องสาธารณะ</span>
@@ -3294,40 +3393,51 @@ export default function App() {
                       </button>
                     </>
                   ) : (
-                    <button
-                      type="button"
-                      disabled={isSigningIn}
-                      onClick={() => void handleGoogleSignIn()}
-                      className="inline-flex items-center justify-center gap-2 min-h-[40px] px-4 py-2 rounded-full bg-white hover:bg-slate-50 disabled:opacity-60 border border-slate-300 text-slate-900 text-xs font-bold shadow-xs active:scale-95 touch-manipulation cursor-pointer transition"
-                    >
-                      {isSigningIn ? (
-                        <Loader2 className="w-4 h-4 animate-spin text-rose-500 shrink-0" />
-                      ) : (
-                        <svg
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
-                          className="w-4 h-4 shrink-0"
-                        >
-                          <path
-                            fill="#4285F4"
-                            d="M23.49 12.27c0-.79-.07-1.54-.2-2.27H12v4.3h6.45a5.52 5.52 0 0 1-2.39 3.62v3h3.87c2.26-2.08 3.56-5.15 3.56-8.65Z"
-                          />
-                          <path
-                            fill="#34A853"
-                            d="M12 24c3.24 0 5.95-1.07 7.93-2.9l-3.87-3c-1.07.72-2.44 1.15-4.06 1.15-3.12 0-5.77-2.11-6.72-4.95H1.28v3.1A11.99 11.99 0 0 0 12 24Z"
-                          />
-                          <path
-                            fill="#FBBC05"
-                            d="M5.28 14.3a7.2 7.2 0 0 1 0-4.6V6.6H1.28a12 12 0 0 0 0 10.8l4-3.1Z"
-                          />
-                          <path
-                            fill="#EA4335"
-                            d="M12 4.75c1.76 0 3.34.61 4.58 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0 7.31 0 3.25 2.69 1.28 6.6l4 3.1c.95-2.84 3.6-4.95 6.72-4.95Z"
-                          />
-                        </svg>
-                      )}
-                      <span>{isSigningIn ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบด้วย Google'}</span>
-                    </button>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        disabled={isSigningIn}
+                        onClick={() => void handleGoogleSignIn('creator')}
+                        className="inline-flex items-center justify-center gap-2 min-h-[40px] px-4 py-2 rounded-full bg-white hover:bg-slate-50 disabled:opacity-60 border border-slate-300 text-slate-900 text-xs font-bold shadow-xs active:scale-95 touch-manipulation cursor-pointer transition"
+                      >
+                        {isSigningIn ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-rose-500 shrink-0" />
+                        ) : (
+                          <svg
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                            className="w-4 h-4 shrink-0"
+                          >
+                            <path
+                              fill="#4285F4"
+                              d="M23.49 12.27c0-.79-.07-1.54-.2-2.27H12v4.3h6.45a5.52 5.52 0 0 1-2.39 3.62v3h3.87c2.26-2.08 3.56-5.15 3.56-8.65Z"
+                            />
+                            <path
+                              fill="#34A853"
+                              d="M12 24c3.24 0 5.95-1.07 7.93-2.9l-3.87-3c-1.07.72-2.44 1.15-4.06 1.15-3.12 0-5.77-2.11-6.72-4.95H1.28v3.1A11.99 11.99 0 0 0 12 24Z"
+                            />
+                            <path
+                              fill="#FBBC05"
+                              d="M5.28 14.3a7.2 7.2 0 0 1 0-4.6V6.6H1.28a12 12 0 0 0 0 10.8l4-3.1Z"
+                            />
+                            <path
+                              fill="#EA4335"
+                              d="M12 4.75c1.76 0 3.34.61 4.58 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0 7.31 0 3.25 2.69 1.28 6.6l4 3.1c.95-2.84 3.6-4.95 6.72-4.95Z"
+                            />
+                          </svg>
+                        )}
+                        <span>{isSigningIn ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบด้วย Google'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isSigningIn}
+                        onClick={() => void handleGoogleSignIn('seller')}
+                        className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3.5 py-2 rounded-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-xs font-bold shadow-xs active:scale-95 touch-manipulation cursor-pointer transition"
+                      >
+                        <Store className="w-3.5 h-3.5 shrink-0" />
+                        <span>เข้าร้านค้า</span>
+                      </button>
+                    </div>
                   )}
                 </div>
                 <button
